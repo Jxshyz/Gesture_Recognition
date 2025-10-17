@@ -32,6 +32,7 @@ Zeigt das Kamerabild und zeichnet erkannte Hand-Landmarks.
 Windows PowerShell aus dem Projekt-Root
   ```bash
   python .\main.py test_cam
+
 _optional mit Kameraindex (z. B. externe Webcam)_
   ```bash
   python .\main.py test_cam 1
@@ -44,6 +45,7 @@ __Syntax: python .\main.py record_data <l|r> <Name> [camera_index]__
 Beispiel (rechte Hand):
   ```bash
   python .\main.py record_data r Joschua
+  
 Beispiel (linke Hand, Kameraindex 1):
   ```bash
   python .\main.py record_data r Meric
