@@ -30,9 +30,11 @@ Später trainieren wir damit ein **neuronales Netz**, um Gesten in Echtzeit zu k
 Zeigt das Kamerabild und zeichnet erkannte Hand-Landmarks.
 
 Windows PowerShell aus dem Projekt-Root
-```python .\main.py test_cam```
+  ```bash
+  python .\main.py test_cam
 _optional mit Kameraindex (z. B. externe Webcam)_
-```python .\main.py test_cam 1```
+  ```bash
+  python .\main.py test_cam 1
 
 2) Daten aufnehmen
 
@@ -40,9 +42,11 @@ Startet den Rot/Grün-Takt, zeigt Timer & Gesten-Text, speichert Daten in ./data
 
 __Syntax: python .\main.py record_data <l|r> <Name> [camera_index]__
 Beispiel (rechte Hand):
-```python .\main.py record_data r Joschua```
+  ```bash
+  python .\main.py record_data r Joschua
 Beispiel (linke Hand, Kameraindex 1):
-```python .\main.py record_data r Meric```
+  ```bash
+  python .\main.py record_data r Meric
 
 
 Während der Aufnahme:
