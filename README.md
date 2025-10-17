@@ -15,9 +15,8 @@ Phase 2: Training eines **NN** (Fallback: **HMM**) zur **Echtzeit-Klassifikation
   - [1) Kamera testen](#1-kamera-testen)
   - [2) Daten aufnehmen](#2-daten-aufnehmen)
 - [Datensatz / Format](#datensatz--format)
-- [Tipps für Labels](#tipps-für-labels)
-- [Changelog / Versionierung](#changelog--versionierung)
 - [Lizenz / Datenschutz](#lizenz--datenschutz)
+- [Quick-Reference (Cheatsheet)](#quick-reference-cheatsheet)
 
 ---
 
