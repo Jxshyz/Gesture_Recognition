@@ -1,5 +1,5 @@
+# utils/record_data.py
 from __future__ import annotations
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,14 +42,23 @@ def _ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def _next_out_path(out_dir: Path, name: str) -> Path:
+    """
+    Liefert einen nicht existierenden Pfad der Form:
+    ./data/Gestures_<Name>_<N>.pkl, wobei N bei 1 beginnt und hochzählt.
+    """
+    n = 1
+    while True:
+        candidate = out_dir / f"Gestures_{name}_{n}.pkl"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 def draw_square_with_timer(frame_bgr: np.ndarray, color: str, seconds_left: float) -> None:
     # Viereck oben links
-    # Größe und Position:
     x0, y0, w, h = 10, 10, 140, 140
-    if color == "green":
-        col = (0, 180, 0)
-    else:
-        col = (0, 0, 200)
+    col = (0, 180, 0) if color == "green" else (0, 0, 200)
     cv2.rectangle(frame_bgr, (x0, y0), (x0 + w, y0 + h), col, thickness=-1)
 
     # Timer-Zahl zentriert ins Viereck
@@ -76,10 +85,10 @@ def run_record(
         return
     hand_text = "links" if hand_arg == "l" else "rechts"
 
-    # Pfad vorbereiten
+    # Pfad vorbereiten (inkrementierender Dateiname)
     out_dir = Path("./data")
     _ensure_dir(out_dir)
-    out_path = out_dir / f"Gestures_{name}.pkl"
+    out_path = _next_out_path(out_dir, name)  # z. B. Gestures_Joschua_1.pkl, Gestures_Joschua_2.pkl, ...
 
     # Kamera
     cap = cv2.VideoCapture(camera_index)
@@ -112,7 +121,8 @@ def run_record(
     rows: List[Dict] = []
     idx = 0
 
-    print("[INFO] Aufnahme gestartet. 'q' zum Abbrechen.")
+    print(f"[INFO] Aufnahme gestartet. Speichere nach Abschluss unter: {out_path.name}")
+    print("[INFO] 'q' zum Abbrechen.")
     try:
         while True:
             ok, frame = cap.read()
