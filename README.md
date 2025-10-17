@@ -140,30 +140,10 @@ python ./main.py record_data l Meric 1
 
 ---
 
-## Tipps für Labels
-
-Für Trainings-Pipelines zusätzlich maschinenlesbare Codes führen (z. B. `label_code` in `snake_case`):
-
-```text
-swipe_left, swipe_right, swipe_up, swipe_down, fist, rotate_left, rotate_right
-```
-
-Optional: numerische `label_id` für schnellere Verarbeitung.
-
----
-
-## Changelog / Versionierung
-
-- **Schema/Meta**: `schema_version`, `data_version`, `app_version` in Metadaten pflegen
-- Beispiel-Änderungen dokumentieren (z. B. neue Gesten, neues Timing, Filterung)
-
----
-
 ## Lizenz / Datenschutz
 
 - Speicherung nur technischer Handdaten; **kein Video** (wenn möglich)
 - Einwilligung der Teilnehmenden, Anonymisierung (IDs), Zweckbindung
-- Sichere Ablage (verschlüsselte Datenträger/Repos, Zugriffskontrolle)
 
 ---
 
