@@ -139,3 +139,11 @@ if __name__ == "__main__":
     # 5. Training accuracy
     correct_train = sum(predict_gesture(seq, models, scaler) == lbl for seq, lbl in zip(train_seqs, train_labels))
     print(f"Training accuracy: {correct_train / len(train_labels):.2%}")
+
+    # 6. Modelle speichern
+    save_path = "./data/trained_hmm.pkl"
+    with open(save_path, "wb") as f:
+        pickle.dump({"models": models, "scaler": scaler}, f)
+
+    print(f"Modelle gespeichert in: {save_path}")
+    pickle.dump(models, open("trained_hmm.pkl", "wb"))
