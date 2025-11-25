@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Tetris + Gestensteuerung</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background:#020617; color:#e2e8f0; }
+    body { display:flex; align-items:center; justify-content:center; }
+
+    .page {
+      display:flex;
+      gap:24px;
+      padding:24px;
+      width:100%;
+      max-width:1250px;
+      align-items:flex-start;
+      justify-content:center;
+    }
+
+    /* ---------------------------------------------------
+       GESTENPANEL LINKS
+       --------------------------------------------------- */
+    .gesture-panel {
+      flex: 0 0 220px;
+      background:#020617;
+      border-radius:16px;
+      padding:16px 18px;
+      border:1px solid #1f2937;
+      box-shadow:0 12px 30px rgba(15,23,42,0.9);
+    }
+
+    .section-title {
+      font-size:0.9rem;
+      text-transform:uppercase;
+      letter-spacing:0.1em;
+      color:#9ca3af;
+      margin-bottom:8px;
+    }
+
+    .gesture-box {
+      width:100%;
+      border-radius:12px;
+      border:4px solid #4b5563;
+      padding:10px 12px;
+      background:#020617;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      min-height:90px;
+    }
+
+    .gesture-box.green { border-color:#22c55e; }
+    .gesture-box.red   { border-color:#ef4444; }
+
+    .gesture-text {
+      font-weight:600;
+      font-size:0.95rem;
+    }
+
+    .gesture-meta {
+      display:flex;
+      justify-content:space-between;
+      font-size:0.8rem;
+      color:#9ca3af;
+    }
+
+    /* ---------------------------------------------------
+       TETRIS MITTE
+       --------------------------------------------------- */
+    .game-wrapper {
+      flex: 0 0 auto;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+    }
+
+    .game-title {
+      margin-bottom:12px;
+      font-size:1.5rem;
+      font-weight:600;
+      letter-spacing:0.05em;
+      text-transform:uppercase;
+      color:#e5e7eb;
+      text-align:center;
+    }
+
+    canvas {
+      background:#020617;
+      border-radius:16px;
+      box-shadow:0 20px 40px rgba(15,23,42,0.8);
+      border:2px solid #1f2937;
+    }
+
+    /* ---------------------------------------------------
+       STATUSPANEL RECHTS
+       --------------------------------------------------- */
+    .panel {
+      flex: 0 0 360px;
+      background:#020617;
+      border-radius:16px;
+      padding:16px 18px;
+      border:1px solid #1f2937;
+      box-shadow:0 12px 30px rgba(15,23,42,0.9);
+    }
+
+    .badge-row {
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-bottom:10px;
+    }
+
+    .badge {
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 9px;
+      border-radius:999px;
+      border:1px solid #374151;
+      background:rgba(15,23,42,0.85);
+      font-size:0.78rem;
+      color:#e5e7eb;
+    }
+
+    .badge-label {
+      color:#9ca3af;
+      font-size:0.7rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+    }
+
+    .row {
+      margin:10px 0;
+      font-size:0.85rem;
+      color:#e5e7eb;
+    }
+
+    code {
+      background:#030712;
+      padding:2px 6px;
+      border-radius:6px;
+      font-size:0.8rem;
+      border:1px solid #111827;
+    }
+
+    /* Kamera */
+    .camera-box {
+      width:100%;
+      border-radius:12px;
+      border:1px solid #1f2937;
+      overflow:hidden;
+      background:#000;
+      height:180px;
+      display:block;
+    }
+
+    .camera-box img {
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    /* Letztes Event */
+    pre {
+      white-space:pre-wrap;
+      background:#020617;
+      padding:10px;
+      border-radius:10px;
+      border:1px solid #1f2937;
+      font-size:0.76rem;
+      max-height:140px;
+      overflow:auto;
+      margin:0;
+    }
+
+  </style>
+</head>
+
+<body>
+  <div class="page">
+
+    <!-- LINKES GESTENPANEL -->
+    <aside class="gesture-panel">
+      <div class="section-title">Geste</div>
+
+      <div id="gestureBox" class="gesture-box">
+        <div id="gestureLabel" class="gesture-text">Keine Geste</div>
+        <div class="gesture-meta">
+          <span id="gesturePhase">–</span>
+          <span id="gestureCountdown">0.0s</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- TETRIS MITTE -->
+    <div class="game-wrapper">
+      <div class="game-title">GESTURE TETRIS</div>
+
+      <!-- Spielfeld -->
+      <canvas id="board" width="360" height="720"></canvas>
+    </div>
+
+    <!-- RECHTES STATUSPANEL -->
+    <aside class="panel">
+      <div class="section-title">Status</div>
+
+      <div class="badge-row">
+        <span class="badge"><span class="badge-label">WS</span><span id="wsState">⏳ Verbinden…</span></span>
+        <span class="badge"><span class="badge-label">Score</span><span id="score">0</span></span>
+        <span class="badge"><span class="badge-label">Level</span><span id="level">1</span></span>
+      </div>
+
+      <!-- Kamera -->
+      <div class="row">
+        <div class="section-title">Kamera</div>
+        <div class="camera-box">
+          <img id="cameraFeed" src="/video_feed" alt="Kamera">
+        </div>
+      </div>
+
+      <!-- Steuerung -->
+      <div class="row">
+        <div class="section-title">Tastatur</div>
+        ← / → bewegen, ↑ drehen, ↓ schneller fallen,<br>
+        <code>Space</code> Hard Drop, <code>P</code> Pause, <code>R</code> Reset
+      </div>
+
+      <!-- Gesten -->
+      <div class="row">
+        <div class="section-title">Gesten → Aktionen</div>
+        <code>swipe_left → left</code><br>
+        <code>swipe_right → right</code><br>
+        <code>rotate → rotate</code><br>
+        <code>fist → hardDrop</code><br>
+      </div>
+
+      <div class="row">
+        <div class="section-title">Letztes Event</div>
+        <pre id="lastEvent"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ===========================
+       JAVASCRIPT – SPIEL & GESTEN
+       =========================== -->
+  <script>
+    /* =========================================================
+       UI-BINDINGS
+       ========================================================= */
+    const scoreEl = document.getElementById("score");
+    const levelEl = document.getElementById("level");
+    const wsStateEl = document.getElementById("wsState");
+    const lastEventEl = document.getElementById("lastEvent");
+
+    const gestureBox = document.getElementById("gestureBox");
+    const gestureLabelEl = document.getElementById("gestureLabel");
+    const gesturePhaseEl = document.getElementById("gesturePhase");
+    const gestureCountdownEl = document.getElementById("gestureCountdown");
+
+    const cameraImg = document.getElementById("cameraFeed");
+
+    /* =========================================================
+       SPIEL SOLL ERST STARTEN, WENN KAMERA GELADEN IST
+       ========================================================= */
+    let cameraReady = false;
+    cameraImg.onload = () => {
+      cameraReady = true;
+    };
+
+    /* =========================================================
+       GESTEN-LOGIK (DICKER RAND + COUNTDOWN)
+       ========================================================= */
+    const WINDOW_DURATION = 2.0;
+    let countdownTimer = null;
+
+    function updateGestureBox(gesture, phase) {
+      gestureLabelEl.textContent = gesture || "Keine Geste";
+
+      const phaseText =
+        phase === "green"
+          ? "Aufnahme (grün)"
+          : phase === "red"
+          ? "Pause (rot)"
+          : "–";
+
+      gesturePhaseEl.textContent = phaseText;
+
+      gestureBox.classList.remove("green", "red");
+      if (phase === "green") gestureBox.classList.add("green");
+      else if (phase === "red") gestureBox.classList.add("red");
+    }
+
+    function startCountdown() {
+      if (countdownTimer) clearInterval(countdownTimer);
+
+      let remaining = WINDOW_DURATION;
+      gestureCountdownEl.textContent = remaining.toFixed(1) + "s";
+
+      countdownTimer = setInterval(() => {
+        remaining -= 0.1;
+        if (remaining <= 0) {
+          remaining = 0;
+          clearInterval(countdownTimer);
+          countdownTimer = null;
+        }
+        gestureCountdownEl.textContent = remaining.toFixed(1) + "s";
+      }, 100);
+    }
+
+    /* =========================================================
+       TETRIS ENGINE (verlangsamt, reset mit "R")
+       ========================================================= */
+    const COLS = 10,
+      ROWS = 20,
+      SIZE = 36;
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    ctx.scale(SIZE / 12, SIZE / 12);
+
+    const shapes = {
+      I: [[1, 1, 1, 1]],
+      J: [[1, 0, 0], [1, 1, 1]],
+      L: [[0, 0, 1], [1, 1, 1]],
+      O: [[1, 1], [1, 1]],
+      S: [[0, 1, 1], [1, 1, 0]],
+      T: [[0, 1, 0], [1, 1, 1]],
+      Z: [[1, 1, 0], [0, 1, 1]],
+    };
+
+    const colors = {
+      I: "#60a5fa",
+      J: "#a78bfa",
+      L: "#f472b6",
+      O: "#facc15",
+      S: "#34d399",
+      T: "#f97316",
+      Z: "#ef4444",
+    };
+
+    const emptyMatrix = () =>
+      Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+
+    const rndPiece = () => {
+      const keys = Object.keys(shapes);
+      const k = keys[Math.floor(Math.random() * keys.length)];
+      return { shape: shapes[k].map((r) => r.slice()), x: 3, y: 0, k };
+    };
+
+    const rotate = (m) => m[0].map((_, i) => m.map((r) => r[i]).reverse());
+
+    const board = emptyMatrix();
+    let piece = rndPiece();
+    let score = 0,
+      level = 1;
+    let dropInterval = 1400;
+    let lastTime = 0,
+      paused = false,
+      gameOver = false;
+
+    function resetGame() {
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          board[y][x] = 0;
+        }
+      }
+      piece = rndPiece();
+      score = 0;
+      level = 1;
+      dropInterval = 1400;
+      lastTime = 0;
+      paused = false;
+      gameOver = false;
+
+      scoreEl.textContent = score;
+      levelEl.textContent = level;
+    }
+
+    function drawBlock(x, y, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * 12, y * 12, 12, 12);
+      ctx.strokeStyle = "#020617";
+      ctx.strokeRect(x * 12, y * 12, 12, 12);
+    }
+
+    function collide(b, p) {
+      for (let y = 0; y < p.shape.length; y++) {
+        for (let x = 0; x < p.shape[y].length; x++) {
+          if (p.shape[y][x] &&
+              ((b[p.y + y] && b[p.y + y][p.x + x]) !== 0 ||
+               p.x + x < 0 ||
+               p.x + x >= COLS ||
+               p.y + y >= ROWS)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function merge(b, p) {
+      for (let y = 0; y < p.shape.length; y++) {
+        for (let x = 0; x < p.shape[y].length; x++) {
+          if (p.shape[y][x]) b[p.y + y][p.x + x] = p.k;
+        }
+      }
+    }
+
+    function clearLines() {
+      let lines = 0;
+      outer: for (let y = ROWS - 1; y >= 0; y--) {
+        for (let x = 0; x < COLS; x++) {
+          if (!board[y][x]) continue outer;
+        }
+        board.splice(y, 1);
+        board.unshift(Array(COLS).fill(0));
+        lines++;
+        y++;
+      }
+
+      if (lines) {
+        score += [0, 100, 300, 500, 800][lines] * level;
+        scoreEl.textContent = score;
+        if (score >= level * 1000) {
+          level++;
+          dropInterval = Math.max(300, dropInterval - 100);
+          levelEl.textContent = level;
+        }
+      }
+    }
+
+    function drop() {
+      piece.y++;
+      if (collide(board, piece)) {
+        piece.y--;
+        merge(board, piece);
+        clearLines();
+        piece = rndPiece();
+        if (collide(board, piece)) {
+          gameOver = true;
+          paused = true;
+          alert("Game Over");
+        }
+      }
+    }
+
+    function hardDrop() {
+      while (!collide(board, piece)) {
+        piece.y++;
+      }
+      piece.y--;
+      merge(board, piece);
+      clearLines();
+      piece = rndPiece();
+      if (collide(board, piece)) {
+        gameOver = true;
+        paused = true;
+        alert("Game Over");
+      }
+    }
+
+    function move(dir) {
+      piece.x += dir;
+      if (collide(board, piece)) piece.x -= dir;
+    }
+
+    function rotatePiece() {
+      const old = piece.shape;
+      piece.shape = rotate(piece.shape);
+      if (collide(board, piece)) piece.shape = old;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          if (board[y][x]) drawBlock(x, y, colors[board[y][x]]);
+        }
+      }
+
+      if (!gameOver) {
+        for (let y = 0; y < piece.shape.length; y++) {
+          for (let x = 0; x < piece.shape[y].length; x++) {
+            if (piece.shape[y][x]) drawBlock(piece.x + x, piece.y + y, colors[piece.k]);
+          }
+        }
+      }
+    }
+
+    function update(time = 0) {
+      if (!cameraReady) {
+        draw();
+        requestAnimationFrame(update);
+        return;
+      }
+      if (paused) {
+        draw();
+        requestAnimationFrame(update);
+        return;
+      }
+
+      const delta = time - lastTime;
+      if (delta > dropInterval) {
+        drop();
+        lastTime = time;
+      }
+
+      draw();
+      requestAnimationFrame(update);
+    }
+
+    /* =========================================================
+       KEYBOARD
+       ========================================================= */
+    addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() === "r") {
+        resetGame();
+        return;
+      }
+
+      if (gameOver) return;
+
+      if (e.key === "ArrowLeft") move(-1);
+      else if (e.key === "ArrowRight") move(1);
+      else if (e.key === "ArrowUp") rotatePiece();
+      else if (e.key === "ArrowDown") drop();
+      else if (e.code === "Space") hardDrop();
+      else if (e.key.toLowerCase() === "p") paused = !paused;
+    });
+
+    /* =========================================================
+       GESTEN → TETRIS-ACTION
+       ========================================================= */
+    function handleAction(action) {
+      if (gameOver) return;
+
+      if (action === "left") move(-1);
+      else if (action === "right") move(1);
+      else if (action === "rotate") rotatePiece();
+      else if (action === "hardDrop") hardDrop();
+    }
+
+    /* =========================================================
+       WEBSOCKET
+       ========================================================= */
+    function connectWS() {
+      const wsUrl =
+        (location.protocol === "https:" ? "wss://" : "ws://") +
+        location.host +
+        "/ws";
+
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        wsStateEl.textContent = "✅ verbunden";
+      };
+
+      ws.onclose = () => {
+        wsStateEl.textContent = "⚠️ getrennt – retry…";
+        setTimeout(connectWS, 1000);
+      };
+
+      ws.onerror = () => {
+        wsStateEl.textContent = "❌ Fehler";
+      };
+
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          lastEventEl.textContent = JSON.stringify(msg, null, 2);
+
+          if (msg.type === "gesture") {
+
+            const gestureName = msg.gesture || "Keine Geste";
+            const phase =
+              msg.params && msg.params.phase_color
+                ? msg.params.phase_color
+                : "green";
+
+            updateGestureBox(gestureName, phase);
+            startCountdown();
+
+            if (msg.action) handleAction(msg.action);
+          }
+        } catch (e) {}
+      };
+    }
+
+    connectWS();
+    requestAnimationFrame(update);
+
+  </script>
+</body>
+</html>
