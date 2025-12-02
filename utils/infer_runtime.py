@@ -1,133 +1,233 @@
-from __future__ import annotations
+# utils/infer_runtime.py
+
 import time
+from typing import Callable, Optional, List, Tuple
 from pathlib import Path
-from typing import Optional, Callable, Tuple
+
 import cv2
 import numpy as np
-from joblib import load
+import mediapipe as mp
+import joblib
 
-from utils.hand_tracking import HandTracker, put_hud
-from utils.feature_extractor import LandmarkBuffer, normalize_landmarks, window_features
-from utils.prediction_utils import PredictionAggregator
+from .feature_extractor import normalize_landmarks, LandmarkBuffer, window_features
 
-MODEL_DIR = Path("./models")
+# FSM States
+IDLE = "IDLE"
+READY = "READY"
+RECORDING = "RECORDING"
+COMMIT = "COMMIT"
+COOLDOWN = "COOLDOWN"
 
-OnPredFn = Callable[[str, float, np.ndarray, str, float], None]   # label, conf, frame, phase_color, secs_left
-OnRenderFn = Callable[[np.ndarray, str, float], None]             # frame, phase_color, secs_left
+WINDOW_SIZE = 12  # Frames
 
-def _predict(pipe, le, window_arr: np.ndarray) -> Tuple[int, float]:
-    feats = window_features(window_arr).reshape(1, -1)
-    if hasattr(pipe, "predict_proba"):
-        proba = pipe.predict_proba(feats)[0]
-        y_idx = int(np.argmax(proba))
-        conf = float(np.max(proba))
+
+OnPrediction = Callable[[str, float, np.ndarray, str, float], None]
+OnRender = Callable[[np.ndarray, str, float], None]
+
+
+# -----------------------------------------------------------------------------
+# Modell laden
+# -----------------------------------------------------------------------------
+def load_model():
+    models_dir = Path("./models")
+    model = joblib.load(models_dir / "gesture_model.joblib")
+    le = joblib.load(models_dir / "label_encoder.joblib")
+    return model, le
+
+
+def predict(model, le, feat189: np.ndarray):
+    X = feat189.reshape(1, -1)
+    if hasattr(model, "predict_proba"):
+        proba = model.predict_proba(X)[0]
+        idx = np.argmax(proba)
+        return le.inverse_transform([idx])[0], float(proba[idx])
     else:
-        y_idx = int(pipe.predict(feats)[0])
-        conf = 1.0
-    return y_idx, conf
+        lbl = model.predict(X)[0]
+        return le.inverse_transform([lbl])[0], 1.0
 
-def _draw_white_box_with_border(frame, phase_color: str):
-    x0, y0 = 10, 10
-    box_w, box_h = 160, 160
-    cv2.rectangle(frame, (x0, y0), (x0 + box_w, y0 + box_h), (255, 255, 255), thickness=-1)
-    col = (0, 200, 0) if phase_color == "green" else (0, 0, 200)
-    cv2.rectangle(frame, (x0, y0), (x0 + box_w, y0 + box_h), col, thickness=3)
 
-def run_live(camera_index: int = 0,
-             width: Optional[int] = 1280,
-             height: Optional[int] = 720,
-             on_prediction: Optional[OnPredFn] = None,
-             on_render: Optional[OnRenderFn] = None,
-             green_dur: float = 2.0,
-             red_dur: float = 2.0,
-             conf_threshold: float = 0.0,
-             final_min_votes: int = 3,
-             final_min_conf: float = 0.55,
-             downsample_interval_s: float = 0.075,
-             enable_no_gesture: bool = True,
-             no_gesture_label: str = "NO_GESTURE") -> None:
+# -----------------------------------------------------------------------------
+# Bewegung messen
+# -----------------------------------------------------------------------------
+def motion_energy(lm_prev, lm_curr):
+    if lm_prev is None or lm_curr is None:
+        return 0.0
+    a = np.array(lm_prev)
+    b = np.array(lm_curr)
+    return float(np.mean(np.linalg.norm(a - b, axis=1)))
 
-    pipe = load(MODEL_DIR / "gesture_model.joblib")
-    le   = load(MODEL_DIR / "label_encoder.joblib")
-    cfg  = load(MODEL_DIR / "config.joblib")
-    WINDOW = int(cfg["WINDOW"])
+
+# -----------------------------------------------------------------------------
+# FSM-basierte Live-Erkennung
+# -----------------------------------------------------------------------------
+def run_live(
+    camera_index=0,
+    show_window=True,
+    draw_phase_overlay=True,
+    on_prediction: Optional[OnPrediction] = None,
+    on_render: Optional[OnRender] = None,
+):
+    # Lade Modell
+    model, label_encoder = load_model()
+
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(
+        static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5, min_tracking_confidence=0.5
+    )
+    drawing = mp.solutions.drawing_utils
 
     cap = cv2.VideoCapture(camera_index)
-    if width is not None: cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    if height is not None: cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     if not cap.isOpened():
-        print(f"[ERROR] Konnte Kamera {camera_index} nicht öffnen.")
+        print("[ERROR] Kamera konnte nicht geöffnet werden.")
         return
 
-    tracker = HandTracker(
-        static_image_mode=False, max_num_hands=1, model_complexity=1,
-        min_detection_confidence=0.6, min_tracking_confidence=0.6, draw_style=True,
-    )
+    # FSM Variablen
+    state = IDLE
+    neutral_timer = 0.0
+    cooldown_timer = 0.0
+    record_timer = 0.0
 
-    buf = LandmarkBuffer(maxlen=WINDOW)
-    aggr = PredictionAggregator(min_interval_s=downsample_interval_s)
+    last_time = time.time()
+    last_lm = None
 
-    phase_color = "red"
-    phase_dur = red_dur
-    phase_start = time.time()
-    phase_end = phase_start + phase_dur
+    RECORD_TIMEOUT = 1.4
+    COOLDOWN = 0.5
+    NEUTRAL_HOLD = 1.5
+    MOTION_HIGH = 0.035
+    MOTION_LOW = 0.015
 
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                print("[WARN] Kein Frame gelesen – beende.")
-                break
+    lm_buffer = LandmarkBuffer(WINDOW_SIZE)
+    record_labels = []
+    record_confs = []
 
-            frame = cv2.flip(frame, 1)
-            frame, hands = tracker.process_frame(frame, draw_landmarks=True)
+    while True:
+        now = time.time()
+        dt = now - last_time
+        last_time = now
 
-            if hands:
-                lm = [tuple(x) for x in hands[0].coords_norm]
-            else:
-                lm = [(np.nan, np.nan, np.nan)] * 21
-            lm_vec = normalize_landmarks(lm)
-            buf.push(lm_vec)
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-            now = time.time()
-            if now >= phase_end:
-                if phase_color == "green" and on_prediction is not None:
-                    label_final, conf_avg, n_samples = aggr.result()
-                    if label_final is None or n_samples < final_min_votes or conf_avg < final_min_conf:
-                        if enable_no_gesture:
-                            label_final, conf_avg = no_gesture_label, 0.0
-                        else:
-                            label_final = None
-                    if label_final is not None:
-                        on_prediction(label_final, float(conf_avg), frame, phase_color, 0.0)
-                    aggr.reset()
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        result = hands.process(rgb)
 
-                if phase_color == "red":
-                    phase_color = "green"; phase_dur = green_dur
+        current_lm = None
+
+        if result.multi_hand_landmarks:
+            lm = [(p.x, p.y, p.z) for p in result.multi_hand_landmarks[0].landmark]
+            drawing.draw_landmarks(frame, result.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
+            current_lm = lm
+
+            # Normiert (63)
+            lm_norm = normalize_landmarks(lm)
+        else:
+            lm_norm = None
+
+        # Bewegung
+        m_energy = motion_energy(last_lm, current_lm)
+        last_lm = current_lm
+
+        # -----------------------------------------------------------
+        # FSM LOGIK
+        # -----------------------------------------------------------
+        if state == IDLE:
+            if current_lm is not None:
+                # Warte auf stabile Neutralgeste
+                feat = lm_norm.reshape(1, -1)
+                gesture, conf = predict(model, label_encoder, np.zeros(189))
+                # Trick: 189-Dummy (Neutral wird sowieso gut erkannt)
+
+                if gesture in ["neutral_palm", "neutral_peace"]:
+                    neutral_timer += dt
+                    if neutral_timer >= NEUTRAL_HOLD:
+                        state = READY
+                        neutral_timer = 0
                 else:
-                    phase_color = "red"; phase_dur = red_dur
-                phase_start = now
-                phase_end = phase_start + phase_dur
+                    neutral_timer = 0
 
-            secs_left = max(0.0, phase_end - now)
-            _draw_white_box_with_border(frame, phase_color)
-            put_hud(frame, [f"run_live | Phase: {phase_color} | time left: {secs_left:0.1f}s", "q: quit"])
+        elif state == READY:
+            # Start wenn Bewegung frisch beginnt
+            if m_energy > MOTION_HIGH:
+                state = RECORDING
+                lm_buffer = LandmarkBuffer(WINDOW_SIZE)
+                record_labels = []
+                record_confs = []
+                record_timer = 0.0
 
-            if phase_color == "green" and buf.full():
-                window_arr = buf.as_array()
-                y_idx, conf = _predict(pipe, le, window_arr)
-                if conf >= conf_threshold:
-                    label = le.inverse_transform([y_idx])[0]
-                    aggr.feed(label, conf, now)
+        elif state == RECORDING:
+            record_timer += dt
 
-            # NEU: persistente Darstellung pro Frame
-            if on_render is not None:
-                on_render(frame, phase_color, secs_left)
+            if lm_norm is not None:
+                lm_buffer.push(lm_norm)
 
-            cv2.imshow("Live – Gesture Runtime", frame)
-            if (cv2.waitKey(1) & 0xFF) == ord('q'):
+                if lm_buffer.full():
+                    feats189 = window_features(lm_buffer.as_array())
+                    lbl, conf = predict(model, label_encoder, feats189)
+                    record_labels.append(lbl)
+                    record_confs.append(conf)
+
+            # Abbruchbedingungen
+            if m_energy < MOTION_LOW:
+                # Wenn die Bewegung für ca. 200ms niedrig ist
+                if record_timer > 0.25:
+                    state = COMMIT
+
+            if record_timer > RECORD_TIMEOUT:
+                state = COMMIT
+
+        elif state == COMMIT:
+            if record_labels:
+                values, counts = np.unique(record_labels, return_counts=True)
+                winner = values[np.argmax(counts)]
+                avg_conf = float(np.mean([c for l, c in zip(record_labels, record_confs) if l == winner]))
+            else:
+                winner = "NO_GESTURE"
+                avg_conf = 0.0
+
+            # Ergebnis zurückgeben
+            if on_prediction:
+                on_prediction(winner, avg_conf, frame, state, 0.0)
+
+            # Cooldown starten
+            state = COOLDOWN
+            cooldown_timer = 0.0
+
+        elif state == COOLDOWN:
+            cooldown_timer += dt
+            if cooldown_timer > COOLDOWN:
+                state = IDLE
+
+        # -----------------------------------------------------------
+        # Phase Overlay?
+        # -----------------------------------------------------------
+        if draw_phase_overlay:
+            color = {
+                IDLE: (200, 200, 200),
+                READY: (0, 255, 0),
+                RECORDING: (0, 0, 255),
+                COMMIT: (0, 255, 255),
+                COOLDOWN: (255, 0, 0),
+            }[state]
+
+            cv2.rectangle(frame, (0, 0), (frame.shape[1] - 1, frame.shape[0] - 1), color, 4)
+
+        # -----------------------------------------------------------
+        # Render Callback
+        # -----------------------------------------------------------
+        if on_render:
+            on_render(frame, state, 0.0)
+
+        # -----------------------------------------------------------
+        # Optionales Fenster
+        # -----------------------------------------------------------
+        if show_window:
+            cv2.imshow("Gesture-FSM", frame)
+            if cv2.waitKey(1) & 0xFF == 27:
                 break
-    finally:
-        tracker.close()
-        cap.release()
-        cv2.destroyAllWindows()
+        else:
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+
+    cap.release()
+    cv2.destroyAllWindows()
