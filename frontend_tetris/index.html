@@ -14,16 +14,16 @@
       gap:24px;
       padding:24px;
       width:100%;
-      max-width:1250px;
+      max-width:1350px;
       align-items:flex-start;
       justify-content:center;
     }
 
     /* ---------------------------------------------------
-       GESTENPANEL LINKS
+       LEFT PANEL (Mode + History)
        --------------------------------------------------- */
-    .gesture-panel {
-      flex: 0 0 220px;
+    .left-panel {
+      flex: 0 0 280px;
       background:#020617;
       border-radius:16px;
       padding:16px 18px;
@@ -39,6 +39,64 @@
       margin-bottom:8px;
     }
 
+    .kv {
+      display:grid;
+      grid-template-columns: 95px 1fr;
+      gap:10px;
+      font-size:0.85rem;
+      margin-bottom:14px;
+      align-items:center;
+    }
+
+    .pill {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid #374151;
+      background:rgba(15,23,42,0.85);
+      font-weight:700;
+      letter-spacing:0.06em;
+      font-size:0.75rem;
+      width:max-content;
+    }
+
+    .hist {
+      list-style:none;
+      padding:0;
+      margin:0;
+      display:grid;
+      gap:8px;
+      max-height:360px;
+      overflow:auto;
+    }
+
+    .hist li {
+      border:1px solid #1f2937;
+      border-radius:12px;
+      padding:8px 10px;
+      background:#030712;
+    }
+
+    .hist-top {
+      display:flex;
+      justify-content:space-between;
+      font-weight:700;
+      font-size:0.86rem;
+    }
+
+    .hist-sub {
+      display:flex;
+      justify-content:space-between;
+      opacity:0.75;
+      font-size:0.75rem;
+      margin-top:4px;
+    }
+
+    /* ---------------------------------------------------
+       GESTENPANEL (old) – now integrated in left panel
+       --------------------------------------------------- */
     .gesture-box {
       width:100%;
       border-radius:12px;
@@ -49,6 +107,7 @@
       flex-direction:column;
       gap:4px;
       min-height:90px;
+      margin-bottom:14px;
     }
 
     .gesture-box.green { border-color:#22c55e; }
@@ -67,7 +126,7 @@
     }
 
     /* ---------------------------------------------------
-       TETRIS MITTE
+       TETRIS MID
        --------------------------------------------------- */
     .game-wrapper {
       flex: 0 0 auto;
@@ -94,7 +153,7 @@
     }
 
     /* ---------------------------------------------------
-       STATUSPANEL RECHTS
+       RIGHT PANEL (unchanged)
        --------------------------------------------------- */
     .panel {
       flex: 0 0 360px;
@@ -145,7 +204,6 @@
       border:1px solid #111827;
     }
 
-    /* Kamera */
     .camera-box {
       width:100%;
       border-radius:12px;
@@ -163,7 +221,6 @@
       display:block;
     }
 
-    /* Letztes Event */
     pre {
       white-space:pre-wrap;
       background:#020617;
@@ -175,17 +232,23 @@
       overflow:auto;
       margin:0;
     }
-
   </style>
 </head>
 
 <body>
   <div class="page">
 
-    <!-- LINKES GESTENPANEL -->
-    <aside class="gesture-panel">
-      <div class="section-title">Geste</div>
+    <!-- LEFT PANEL -->
+    <aside class="left-panel">
+      <div class="section-title">Mode</div>
+      <div class="kv">
+        <div>Status</div><div><span class="pill" id="modePill">IDLE</span></div>
+        <div>Label</div><div id="liveLabel">-</div>
+        <div>Conf</div><div id="liveConf">0.0%</div>
+        <div>Timer</div><div id="liveTimer">0.00s</div>
+      </div>
 
+      <div class="section-title">Geste (Game)</div>
       <div id="gestureBox" class="gesture-box">
         <div id="gestureLabel" class="gesture-text">Keine Geste</div>
         <div class="gesture-meta">
@@ -193,13 +256,14 @@
           <span id="gestureCountdown">0.0s</span>
         </div>
       </div>
+
+      <div class="section-title">History</div>
+      <ul class="hist" id="histList"></ul>
     </aside>
 
     <!-- TETRIS MITTE -->
     <div class="game-wrapper">
       <div class="game-title">GESTURE TETRIS</div>
-
-      <!-- Spielfeld -->
       <canvas id="board" width="360" height="720"></canvas>
     </div>
 
@@ -213,7 +277,6 @@
         <span class="badge"><span class="badge-label">Level</span><span id="level">1</span></span>
       </div>
 
-      <!-- Kamera -->
       <div class="row">
         <div class="section-title">Kamera</div>
         <div class="camera-box">
@@ -221,14 +284,12 @@
         </div>
       </div>
 
-      <!-- Steuerung -->
       <div class="row">
         <div class="section-title">Tastatur</div>
         ← / → bewegen, ↑ drehen, ↓ schneller fallen,<br>
         <code>Space</code> Hard Drop, <code>P</code> Pause, <code>R</code> Reset
       </div>
 
-      <!-- Gesten -->
       <div class="row">
         <div class="section-title">Gesten → Aktionen</div>
         <code>swipe_left → left</code><br>
@@ -244,9 +305,6 @@
     </aside>
   </div>
 
-  <!-- ===========================
-       JAVASCRIPT – SPIEL & GESTEN
-       =========================== -->
   <script>
     /* =========================================================
        UI-BINDINGS
@@ -261,18 +319,22 @@
     const gesturePhaseEl = document.getElementById("gesturePhase");
     const gestureCountdownEl = document.getElementById("gestureCountdown");
 
+    const modePill = document.getElementById("modePill");
+    const liveLabelEl = document.getElementById("liveLabel");
+    const liveConfEl = document.getElementById("liveConf");
+    const liveTimerEl = document.getElementById("liveTimer");
+    const histList = document.getElementById("histList");
+
     const cameraImg = document.getElementById("cameraFeed");
 
     /* =========================================================
-       SPIEL SOLL ERST STARTEN, WENN KAMERA GELADEN IST
+       START erst wenn Kamera geladen ist
        ========================================================= */
     let cameraReady = false;
-    cameraImg.onload = () => {
-      cameraReady = true;
-    };
+    cameraImg.onload = () => { cameraReady = true; };
 
     /* =========================================================
-       GESTEN-LOGIK (DICKER RAND + COUNTDOWN)
+       GESTEN-BOX (old)
        ========================================================= */
     const WINDOW_DURATION = 2.0;
     let countdownTimer = null;
@@ -294,12 +356,11 @@
       else if (phase === "red") gestureBox.classList.add("red");
     }
 
-    function startCountdown() {
+    function startCountdown(secondsOpt) {
       if (countdownTimer) clearInterval(countdownTimer);
+      let remaining = (typeof secondsOpt === "number") ? secondsOpt : WINDOW_DURATION;
 
-      let remaining = WINDOW_DURATION;
       gestureCountdownEl.textContent = remaining.toFixed(1) + "s";
-
       countdownTimer = setInterval(() => {
         remaining -= 0.1;
         if (remaining <= 0) {
@@ -312,11 +373,60 @@
     }
 
     /* =========================================================
-       TETRIS ENGINE (verlangsamt, reset mit "R")
+       TELEMETRY UI
        ========================================================= */
-    const COLS = 10,
-      ROWS = 20,
-      SIZE = 36;
+    function fmtPct(x) {
+      const p = Math.max(0, Math.min(1, Number(x))) * 100;
+      return p.toFixed(1) + "%";
+    }
+
+    function setTelemetry(cur) {
+      if (!cur) return;
+      const st = (cur.state || "idle").toUpperCase();
+      modePill.textContent = st;
+      liveLabelEl.textContent = cur.label ?? "-";
+      liveConfEl.textContent = fmtPct(cur.conf ?? 0);
+      liveTimerEl.textContent = (cur.seconds_left ?? 0).toFixed(2) + "s";
+    }
+
+    function renderHistory(history) {
+      if (!Array.isArray(history)) return;
+      histList.innerHTML = "";
+      for (const e of history.slice(0, 12)) {
+        const li = document.createElement("li");
+        const timeStr = new Date((e.t || 0) * 1000).toLocaleTimeString();
+        li.innerHTML = `
+          <div class="hist-top">
+            <span>${e.label}</span>
+            <span>${fmtPct(e.conf)}</span>
+          </div>
+          <div class="hist-sub">
+            <span>${String(e.state || "").toUpperCase()}</span>
+            <span>${timeStr}</span>
+          </div>
+        `;
+        histList.appendChild(li);
+      }
+    }
+
+    async function pollTelemetry() {
+      try {
+        const res = await fetch("/api/telemetry", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        setTelemetry(data.current);
+        renderHistory(data.history || []);
+      } catch {}
+    }
+
+    // fallback polling (wenn WS telemetry aus irgendeinem Grund fehlt)
+    setInterval(pollTelemetry, 350);
+    pollTelemetry();
+
+    /* =========================================================
+       TETRIS ENGINE (unchanged)
+       ========================================================= */
+    const COLS = 10, ROWS = 20, SIZE = 36;
     const canvas = document.getElementById("board");
     const ctx = canvas.getContext("2d");
     ctx.scale(SIZE / 12, SIZE / 12);
@@ -341,8 +451,7 @@
       Z: "#ef4444",
     };
 
-    const emptyMatrix = () =>
-      Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    const emptyMatrix = () => Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 
     const rndPiece = () => {
       const keys = Object.keys(shapes);
@@ -354,27 +463,15 @@
 
     const board = emptyMatrix();
     let piece = rndPiece();
-    let score = 0,
-      level = 1;
+    let score = 0, level = 1;
     let dropInterval = 1400;
-    let lastTime = 0,
-      paused = false,
-      gameOver = false;
+    let lastTime = 0, paused = false, gameOver = false;
 
     function resetGame() {
-      for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-          board[y][x] = 0;
-        }
-      }
+      for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) board[y][x] = 0;
       piece = rndPiece();
-      score = 0;
-      level = 1;
-      dropInterval = 1400;
-      lastTime = 0;
-      paused = false;
-      gameOver = false;
-
+      score = 0; level = 1; dropInterval = 1400;
+      lastTime = 0; paused = false; gameOver = false;
       scoreEl.textContent = score;
       levelEl.textContent = level;
     }
@@ -391,9 +488,7 @@
         for (let x = 0; x < p.shape[y].length; x++) {
           if (p.shape[y][x] &&
               ((b[p.y + y] && b[p.y + y][p.x + x]) !== 0 ||
-               p.x + x < 0 ||
-               p.x + x >= COLS ||
-               p.y + y >= ROWS)) {
+               p.x + x < 0 || p.x + x >= COLS || p.y + y >= ROWS)) {
             return true;
           }
         }
@@ -402,25 +497,18 @@
     }
 
     function merge(b, p) {
-      for (let y = 0; y < p.shape.length; y++) {
-        for (let x = 0; x < p.shape[y].length; x++) {
-          if (p.shape[y][x]) b[p.y + y][p.x + x] = p.k;
-        }
-      }
+      for (let y = 0; y < p.shape.length; y++) for (let x = 0; x < p.shape[y].length; x++)
+        if (p.shape[y][x]) b[p.y + y][p.x + x] = p.k;
     }
 
     function clearLines() {
       let lines = 0;
       outer: for (let y = ROWS - 1; y >= 0; y--) {
-        for (let x = 0; x < COLS; x++) {
-          if (!board[y][x]) continue outer;
-        }
+        for (let x = 0; x < COLS; x++) if (!board[y][x]) continue outer;
         board.splice(y, 1);
         board.unshift(Array(COLS).fill(0));
-        lines++;
-        y++;
+        lines++; y++;
       }
-
       if (lines) {
         score += [0, 100, 300, 500, 800][lines] * level;
         scoreEl.textContent = score;
@@ -439,90 +527,47 @@
         merge(board, piece);
         clearLines();
         piece = rndPiece();
-        if (collide(board, piece)) {
-          gameOver = true;
-          paused = true;
-          alert("Game Over");
-        }
+        if (collide(board, piece)) { gameOver = true; paused = true; alert("Game Over"); }
       }
     }
 
     function hardDrop() {
-      while (!collide(board, piece)) {
-        piece.y++;
-      }
+      while (!collide(board, piece)) piece.y++;
       piece.y--;
       merge(board, piece);
       clearLines();
       piece = rndPiece();
-      if (collide(board, piece)) {
-        gameOver = true;
-        paused = true;
-        alert("Game Over");
-      }
+      if (collide(board, piece)) { gameOver = true; paused = true; alert("Game Over"); }
     }
 
-    function move(dir) {
-      piece.x += dir;
-      if (collide(board, piece)) piece.x -= dir;
-    }
-
-    function rotatePiece() {
-      const old = piece.shape;
-      piece.shape = rotate(piece.shape);
-      if (collide(board, piece)) piece.shape = old;
-    }
+    function move(dir) { piece.x += dir; if (collide(board, piece)) piece.x -= dir; }
+    function rotatePiece() { const old = piece.shape; piece.shape = rotate(piece.shape); if (collide(board, piece)) piece.shape = old; }
 
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-          if (board[y][x]) drawBlock(x, y, colors[board[y][x]]);
-        }
-      }
-
+      for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++)
+        if (board[y][x]) drawBlock(x, y, colors[board[y][x]]);
       if (!gameOver) {
-        for (let y = 0; y < piece.shape.length; y++) {
-          for (let x = 0; x < piece.shape[y].length; x++) {
-            if (piece.shape[y][x]) drawBlock(piece.x + x, piece.y + y, colors[piece.k]);
-          }
-        }
+        for (let y = 0; y < piece.shape.length; y++) for (let x = 0; x < piece.shape[y].length; x++)
+          if (piece.shape[y][x]) drawBlock(piece.x + x, piece.y + y, colors[piece.k]);
       }
     }
 
     function update(time = 0) {
-      if (!cameraReady) {
+      if (!cameraReady || paused) {
         draw();
         requestAnimationFrame(update);
         return;
       }
-      if (paused) {
-        draw();
-        requestAnimationFrame(update);
-        return;
-      }
-
       const delta = time - lastTime;
-      if (delta > dropInterval) {
-        drop();
-        lastTime = time;
-      }
-
+      if (delta > dropInterval) { drop(); lastTime = time; }
       draw();
       requestAnimationFrame(update);
     }
 
-    /* =========================================================
-       KEYBOARD
-       ========================================================= */
     addEventListener("keydown", (e) => {
-      if (e.key.toLowerCase() === "r") {
-        resetGame();
-        return;
-      }
-
+      if (e.key.toLowerCase() === "r") { resetGame(); return; }
       if (gameOver) return;
-
       if (e.key === "ArrowLeft") move(-1);
       else if (e.key === "ArrowRight") move(1);
       else if (e.key === "ArrowUp") rotatePiece();
@@ -531,12 +576,8 @@
       else if (e.key.toLowerCase() === "p") paused = !paused;
     });
 
-    /* =========================================================
-       GESTEN → TETRIS-ACTION
-       ========================================================= */
     function handleAction(action) {
       if (gameOver) return;
-
       if (action === "left") move(-1);
       else if (action === "right") move(1);
       else if (action === "rotate") rotatePiece();
@@ -547,41 +588,32 @@
        WEBSOCKET
        ========================================================= */
     function connectWS() {
-      const wsUrl =
-        (location.protocol === "https:" ? "wss://" : "ws://") +
-        location.host +
-        "/ws";
-
+      const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
       const ws = new WebSocket(wsUrl);
 
-      ws.onopen = () => {
-        wsStateEl.textContent = "✅ verbunden";
-      };
-
-      ws.onclose = () => {
-        wsStateEl.textContent = "⚠️ getrennt – retry…";
-        setTimeout(connectWS, 1000);
-      };
-
-      ws.onerror = () => {
-        wsStateEl.textContent = "❌ Fehler";
-      };
+      ws.onopen = () => { wsStateEl.textContent = "✅ verbunden"; };
+      ws.onclose = () => { wsStateEl.textContent = "⚠️ getrennt – retry…"; setTimeout(connectWS, 1000); };
+      ws.onerror = () => { wsStateEl.textContent = "❌ Fehler"; };
 
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
           lastEventEl.textContent = JSON.stringify(msg, null, 2);
 
-          if (msg.type === "gesture") {
+          if (msg.type === "telemetry" && msg.data) {
+            setTelemetry(msg.data.current);
+            renderHistory(msg.data.history || []);
+          }
 
+          if (msg.type === "gesture") {
             const gestureName = msg.gesture || "Keine Geste";
-            const phase =
-              msg.params && msg.params.phase_color
-                ? msg.params.phase_color
-                : "green";
+            const phase = (msg.params && msg.params.phase_color) ? msg.params.phase_color : "green";
 
             updateGestureBox(gestureName, phase);
-            startCountdown();
+
+            // Wenn seconds_left mitkommt, nutze es für Countdown, sonst fallback.
+            const secs = (msg.params && typeof msg.params.seconds_left === "number") ? msg.params.seconds_left : undefined;
+            startCountdown(secs);
 
             if (msg.action) handleAction(msg.action);
           }
@@ -591,7 +623,6 @@
 
     connectWS();
     requestAnimationFrame(update);
-
   </script>
 </body>
 </html>

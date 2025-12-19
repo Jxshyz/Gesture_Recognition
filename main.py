@@ -16,6 +16,7 @@ def main():
             "  train_model\n"
             "  run_live\n"
             "  run_live_test\n"
+            "  debug\n"
             "  -tetris\n"
         )
         sys.exit(1)
@@ -35,14 +36,26 @@ def main():
     # -------------------------------------------------------------------------
     elif cmd == "record_data":
         if len(sys.argv) < 4:
-            print("Usage: python main.py record_data <gesture> <Name> [camera_index]")
+            print("Usage: python main.py record_data <gesture|all> <Name> [camera_index] [hand]")
+            print("Examples:")
+            print("  python main.py record_data all josh 1 right")
+            print("  python main.py record_data swipe_left josh 0 left")
             sys.exit(2)
 
-        gesture = sys.argv[2]
+        gesture_or_all = sys.argv[2].lower()
         name = sys.argv[3]
-        cam_idx = int(sys.argv[4]) if len(sys.argv) >= 5 and sys.argv[4].isdigit() else 0
 
-        run_record(hand_arg=gesture, name=name, camera_index=cam_idx)
+        cam_idx = 0
+        hand = "Right"  # default, damit "all josh 1" funktioniert
+
+        # Optional args (ab argv[4])
+        for arg in sys.argv[4:]:
+            if arg.isdigit():
+                cam_idx = int(arg)
+            elif arg.lower() in ("l", "left", "r", "right"):
+                hand = "Right" if arg.lower().startswith("r") else "Left"
+
+        run_record(gesture_arg=gesture_or_all, name=name, camera_index=cam_idx, hand=hand)
         return
 
     # -------------------------------------------------------------------------
@@ -55,7 +68,17 @@ def main():
         return
 
     # -------------------------------------------------------------------------
-    # 4) LIVE-FSM (mit/ohne Tetris)
+    # 4) DEBUG (Overlay + Live FSM)
+    # -------------------------------------------------------------------------
+    elif cmd == "debug":
+        from utils.debug_runner import run_debug
+
+        cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        run_debug(camera_index=cam_idx)
+        return
+
+    # -------------------------------------------------------------------------
+    # 5) LIVE-FSM (mit/ohne Tetris)
     # -------------------------------------------------------------------------
     elif cmd == "run_live":
         from utils.infer_runtime import run_live
@@ -101,7 +124,7 @@ def main():
         start_tetris_server_background()
         webbrowser.open("http://127.0.0.1:8000")
 
-        # Geste an Tetris senden
+        # Geste an Tetris senden (COMMIT-Events)
         def on_prediction(label, conf, frame_bgr, state_str, seconds_left):
             send_gesture_to_tetris(label, conf, state_str, seconds_left)
 
@@ -122,7 +145,7 @@ def main():
         return
 
     # -------------------------------------------------------------------------
-    # 5) Debug-Testmodus
+    # 6) Debug-Testmodus (Bilder anzeigen)
     # -------------------------------------------------------------------------
     elif cmd == "run_live_test":
         from utils.infer_runtime import run_live
@@ -137,7 +160,6 @@ def main():
             "rotate": "hand_links_drehen.png",
             "fist": "faust_schliessen.png",
             "neutral_palm": "hand_rechts_drehen.png",
-            "neutral_peace": "hand_links_drehen.png",
             "garbage": "no_gesture.png",
         }
 
@@ -164,7 +186,7 @@ def main():
         return
 
     # -------------------------------------------------------------------------
-    # 6) Standalone-Tetris (kein Kamera-Feed)
+    # 7) Standalone-Tetris (kein Kamera-Feed)
     # -------------------------------------------------------------------------
     elif cmd == "-tetris":
         from utils.tetris_app import run_tetris_server

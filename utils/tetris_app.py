@@ -2,15 +2,16 @@ import os
 import json
 import asyncio
 import threading
-from typing import Dict, Any, Set, List
+from typing import Dict, Any, Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import FastAPI, WebSocket
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import uvicorn
 
 from .gesture_stream import get_latest_frame
+from .telemetry_store import TELEMETRY
 
 app = FastAPI(title="Gesture Tetris")
 
@@ -81,6 +82,9 @@ async def video_feed():
     )
 
 
+# -------------------------
+# Gesture Event (Game input)
+# -------------------------
 class GestureEvent(BaseModel):
     gesture: str
     confidence: float = 0.0
@@ -106,6 +110,41 @@ async def post_gesture(ev: GestureEvent):
         "action": action,
     }
     await manager.broadcast(payload)
+    return {"ok": True}
+
+
+# -------------------------
+# Telemetry API (UI info)
+# -------------------------
+class TelemetryPayload(BaseModel):
+    state: str
+    label: str
+    conf: float = 0.0
+    seconds_left: float = 0.0
+    push_history: bool = True
+
+
+@app.get("/api/telemetry")
+async def get_telemetry():
+    return JSONResponse(TELEMETRY.snapshot())
+
+
+@app.post("/api/telemetry")
+async def post_telemetry(payload: TelemetryPayload):
+    TELEMETRY.update(
+        state=payload.state,
+        label=payload.label,
+        conf=float(payload.conf),
+        seconds_left=float(payload.seconds_left),
+        push_history=bool(payload.push_history),
+    )
+
+    # Optional: sofort per WS an Frontend pushen
+    msg = {
+        "type": "telemetry",
+        "data": TELEMETRY.snapshot(),
+    }
+    await manager.broadcast(msg)
     return {"ok": True}
 
 
