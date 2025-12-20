@@ -1,6 +1,7 @@
 import sys
 import webbrowser
 from pathlib import Path
+import time
 
 from utils.cam_test import run_test_cam
 from utils.record_data import run_record
@@ -46,9 +47,8 @@ def main():
         name = sys.argv[3]
 
         cam_idx = 0
-        hand = "Right"  # default, damit "all josh 1" funktioniert
+        hand = "Right"
 
-        # Optional args (ab argv[4])
         for arg in sys.argv[4:]:
             if arg.isdigit():
                 cam_idx = int(arg)
@@ -68,7 +68,7 @@ def main():
         return
 
     # -------------------------------------------------------------------------
-    # 4) DEBUG (Overlay + Live FSM)
+    # 4) DEBUG
     # -------------------------------------------------------------------------
     elif cmd == "debug":
         from utils.debug_runner import run_debug
@@ -102,9 +102,7 @@ def main():
                 if len(extra) >= 2 and extra[1].lower() == "-tetris":
                     tetris_mode = True
 
-        # ---------------------------------------------------------------------
         # NORMALER LIVE-MODUS (OpenCV-Fenster)
-        # ---------------------------------------------------------------------
         if not tetris_mode:
             run_live(
                 camera_index=cam_idx,
@@ -112,19 +110,18 @@ def main():
                 draw_phase_overlay=True,
                 on_prediction=None,
                 on_render=None,
+                on_telemetry=None,
             )
             return
 
-        # ---------------------------------------------------------------------
         # TETRIS-MODUS (Web-App + FSM + eingebettete Kamera)
-        # ---------------------------------------------------------------------
         from utils.tetris_app import start_tetris_server_background
-        from utils.tetris_bridge import send_gesture_to_tetris
+        from utils.tetris_bridge import send_gesture_to_tetris, send_telemetry_only
 
         start_tetris_server_background()
-        webbrowser.open("http://127.0.0.1:8000")
+        webbrowser.open(f"http://127.0.0.1:8000/?v={int(time.time())}")
 
-        # Geste an Tetris senden (COMMIT-Events)
+        # COMMIT-Geste ans Spiel
         def on_prediction(label, conf, frame_bgr, state_str, seconds_left):
             send_gesture_to_tetris(label, conf, state_str, seconds_left)
 
@@ -134,13 +131,25 @@ def main():
             if ok:
                 set_latest_frame(buf.tobytes())
 
-        # FSM starten (kein OpenCV)
+        # Telemetry (Progressbar + Live Status)
+        def on_telemetry(state, live_label, live_conf, seconds_left, armed_progress, armed_ready):
+            send_telemetry_only(
+                state=state,
+                label=live_label,
+                conf=live_conf,
+                seconds_left=seconds_left,
+                armed_progress=armed_progress,
+                armed_ready=armed_ready,
+                push_history=False,
+            )
+
         run_live(
             camera_index=cam_idx,
             show_window=False,
             draw_phase_overlay=False,
             on_prediction=on_prediction,
             on_render=on_render,
+            on_telemetry=on_telemetry,
         )
         return
 
@@ -182,11 +191,12 @@ def main():
             draw_phase_overlay=True,
             on_prediction=on_prediction,
             on_render=on_render,
+            on_telemetry=None,
         )
         return
 
     # -------------------------------------------------------------------------
-    # 7) Standalone-Tetris (kein Kamera-Feed)
+    # 7) Standalone-Tetris
     # -------------------------------------------------------------------------
     elif cmd == "-tetris":
         from utils.tetris_app import run_tetris_server

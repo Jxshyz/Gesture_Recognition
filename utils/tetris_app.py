@@ -5,7 +5,7 @@ import threading
 from typing import Dict, Any, Set
 
 from fastapi import FastAPI, WebSocket
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
@@ -16,8 +16,19 @@ from .telemetry_store import TELEMETRY
 app = FastAPI(title="Gesture Tetris")
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend_tetris")
+FRONTEND_DIR = os.path.abspath(FRONTEND_DIR)
 os.makedirs(FRONTEND_DIR, exist_ok=True)
+
+# Optional: falls du static assets hast
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+
+def _no_cache_headers() -> Dict[str, str]:
+    return {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
 
 
 class ConnectionManager:
@@ -32,8 +43,7 @@ class ConnectionManager:
 
     async def disconnect(self, websocket: WebSocket):
         async with self.lock:
-            if websocket in self.active_connections:
-                self.active_connections.remove(websocket)
+            self.active_connections.discard(websocket)
 
     async def broadcast(self, message: Dict[str, Any]):
         dead = []
@@ -50,9 +60,37 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+@app.get("/__debug_index_path")
+async def debug_index_path():
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    return JSONResponse(
+        {
+            "FRONTEND_DIR": FRONTEND_DIR,
+            "index_path": index_path,
+            "exists": os.path.exists(index_path),
+        },
+        headers=_no_cache_headers(),
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+    """
+    WICHTIG: Wir lesen die index.html bei JEDEM Request neu ein,
+    damit du Änderungen sofort siehst und NICHT aus Cache.
+    """
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if not os.path.exists(index_path):
+        return HTMLResponse(
+            f"<h1>index.html nicht gefunden</h1><p>Erwartet unter: {index_path}</p>",
+            status_code=500,
+            headers=_no_cache_headers(),
+        )
+
+    with open(index_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    return HTMLResponse(html, headers=_no_cache_headers())
 
 
 @app.websocket("/ws")
@@ -60,6 +98,7 @@ async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
     try:
         while True:
+            # keep-alive
             await ws.receive_text()
     except Exception:
         await manager.disconnect(ws)
@@ -79,12 +118,10 @@ async def video_feed():
     return StreamingResponse(
         frame_gen(),
         media_type="multipart/x-mixed-replace; boundary=frame",
+        headers=_no_cache_headers(),
     )
 
 
-# -------------------------
-# Gesture Event (Game input)
-# -------------------------
 class GestureEvent(BaseModel):
     gesture: str
     confidence: float = 0.0
@@ -113,39 +150,35 @@ async def post_gesture(ev: GestureEvent):
     return {"ok": True}
 
 
-# -------------------------
-# Telemetry API (UI info)
-# -------------------------
-class TelemetryPayload(BaseModel):
+class TelemetryIn(BaseModel):
     state: str
     label: str
     conf: float = 0.0
     seconds_left: float = 0.0
-    push_history: bool = True
+    armed_progress: float = 0.0
+    armed_ready: bool = False
+    push_history: bool = False
+
+
+@app.post("/api/telemetry")
+async def post_telemetry(t: TelemetryIn):
+    TELEMETRY.update(
+        state=t.state,
+        label=t.label,
+        conf=t.conf,
+        seconds_left=t.seconds_left,
+        armed_progress=t.armed_progress,
+        armed_ready=t.armed_ready,
+        push_history=t.push_history,
+    )
+    snap = TELEMETRY.snapshot()
+    await manager.broadcast({"type": "telemetry", "data": snap})
+    return {"ok": True}
 
 
 @app.get("/api/telemetry")
 async def get_telemetry():
-    return JSONResponse(TELEMETRY.snapshot())
-
-
-@app.post("/api/telemetry")
-async def post_telemetry(payload: TelemetryPayload):
-    TELEMETRY.update(
-        state=payload.state,
-        label=payload.label,
-        conf=float(payload.conf),
-        seconds_left=float(payload.seconds_left),
-        push_history=bool(payload.push_history),
-    )
-
-    # Optional: sofort per WS an Frontend pushen
-    msg = {
-        "type": "telemetry",
-        "data": TELEMETRY.snapshot(),
-    }
-    await manager.broadcast(msg)
-    return {"ok": True}
+    return JSONResponse(TELEMETRY.snapshot(), headers=_no_cache_headers())
 
 
 def run_tetris_server(host="127.0.0.1", port=8000):
