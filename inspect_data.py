@@ -1,6 +1,6 @@
 import joblib
 
-data = joblib.load("data/Gestures_Paula_1.pkl")
+data = joblib.load("data/Gestures_Joschua_1.pkl")
 
 print("TYPE:", type(data))
 
@@ -14,3 +14,5 @@ elif isinstance(data, list):
 
 else:
     print("CONTENT:", data)
+
+print(data.columns.values)

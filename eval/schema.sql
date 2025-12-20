@@ -1,6 +1,6 @@
 
 CREATE TABLE IF NOT EXISTS samples (
-    sample_id INTEGER PRIMARY KEY,
+    sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
     label TEXT NOT NULL
 );
 
