@@ -5,6 +5,7 @@ import time
 
 from utils.cam_test import run_test_cam
 from utils.record_data import run_record
+from utils.game_runner import run_runner, RunnerConfig
 
 
 def main():
@@ -63,7 +64,6 @@ def main():
     # -------------------------------------------------------------------------
     elif cmd == "train_model":
         from utils.train_gesture_model import train_and_save
-
         train_and_save()
         return
 
@@ -72,37 +72,50 @@ def main():
     # -------------------------------------------------------------------------
     elif cmd == "debug":
         from utils.debug_runner import run_debug
-
         cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
         run_debug(camera_index=cam_idx)
         return
 
     # -------------------------------------------------------------------------
-    # 5) LIVE-FSM (mit/ohne Tetris)
+    # 5) LIVE-FSM (normal / tetris / subway)
     # -------------------------------------------------------------------------
     elif cmd == "run_live":
+        extra = sys.argv[2:]
+
+        # Flags erkennen
+        subway_mode = any(a.lower() == "-subway" for a in extra)
+        tetris_mode = any(a.lower() == "-tetris" for a in extra)
+
+        # Kameraindex erkennen (erste Zahl in extra)
+        cam_idx = 0
+        for a in extra:
+            if a.isdigit():
+                cam_idx = int(a)
+                break
+
+        # ---------------------------
+        # SUBWAY / RUNNER MODE
+        # ---------------------------
+        if subway_mode:
+            run_runner(
+                RunnerConfig(
+                    camera_index=cam_idx,
+                    port=8010,              # eigener Port
+                    pred_min_interval_s=0.06,
+                    arm_hold_s=0.60,
+                    cooldown_s=0.50,
+                )
+            )
+            return
+
+        # ab hier: infer_runtime live
         from utils.infer_runtime import run_live
         from utils.gesture_stream import set_latest_frame
         import cv2
 
-        cam_idx = 0
-        tetris_mode = False
-
-        extra = sys.argv[2:]
-        if extra:
-            # run_live -tetris 1
-            if extra[0].lower() == "-tetris":
-                tetris_mode = True
-                if len(extra) >= 2 and extra[1].isdigit():
-                    cam_idx = int(extra[1])
-            # run_live 1 -tetris
-            else:
-                if extra[0].isdigit():
-                    cam_idx = int(extra[0])
-                if len(extra) >= 2 and extra[1].lower() == "-tetris":
-                    tetris_mode = True
-
+        # ---------------------------
         # NORMALER LIVE-MODUS (OpenCV-Fenster)
+        # ---------------------------
         if not tetris_mode:
             run_live(
                 camera_index=cam_idx,
@@ -114,24 +127,23 @@ def main():
             )
             return
 
-        # TETRIS-MODUS (Web-App + FSM + eingebettete Kamera)
+        # ---------------------------
+        # TETRIS-MODUS (Web-App + FSM + Kamera im Browser)
+        # ---------------------------
         from utils.tetris_app import start_tetris_server_background
         from utils.tetris_bridge import send_gesture_to_tetris, send_telemetry_only
 
         start_tetris_server_background()
         webbrowser.open(f"http://127.0.0.1:8000/?v={int(time.time())}")
 
-        # COMMIT-Geste ans Spiel
         def on_prediction(label, conf, frame_bgr, state_str, seconds_left):
             send_gesture_to_tetris(label, conf, state_str, seconds_left)
 
-        # Kamera in Web-App einbetten
         def on_render(frame_bgr, state_str, seconds_left):
             ok, buf = cv2.imencode(".jpg", frame_bgr)
             if ok:
                 set_latest_frame(buf.tobytes())
 
-        # Telemetry (Progressbar + Live Status)
         def on_telemetry(state, live_label, live_conf, seconds_left, armed_progress, armed_ready):
             send_telemetry_only(
                 state=state,
@@ -200,7 +212,6 @@ def main():
     # -------------------------------------------------------------------------
     elif cmd == "-tetris":
         from utils.tetris_app import run_tetris_server
-
         run_tetris_server()
         return
 

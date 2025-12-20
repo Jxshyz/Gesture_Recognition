@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gesture Runner</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page">
+    <aside class="panel left">
+      <h2>Gesture Input</h2>
+
+      <div class="kv">
+        <div>WS</div><div id="wsState">⏳ verbinden…</div>
+        <div>State</div><div id="fsmState">IDLE</div>
+        <div>Label</div><div id="liveLabel">-</div>
+        <div>Conf</div><div id="liveConf">0%</div>
+        <div>Last Cmd</div><div id="lastCmd">-</div>
+      </div>
+
+      <div class="section">
+        <div class="small">Arming (fist halten)</div>
+        <div class="bar"><div id="armFill" class="fill"></div></div>
+      </div>
+
+      <div class="hint">
+        <strong>Steuerung (nur Gesten):</strong><br/>
+        fist = arm<br/>
+        swipe_left/right = lane<br/>
+        swipe_up = jump<br/>
+        swipe_down = duck
+      </div>
+    </aside>
+
+    <main class="center">
+      <div class="title">ENDLESS RUNNER (self-hosted)</div>
+      <canvas id="game" width="420" height="720"></canvas>
+      <div class="subhint">Keine Tastatur nötig – alles über WebSocket Commands.</div>
+    </main>
+
+    <aside class="panel right">
+      <h2>Status</h2>
+      <div class="kv">
+        <div>Score</div><div id="score">0</div>
+        <div>Speed</div><div id="speed">1.0x</div>
+        <div>Lives</div><div id="lives">1</div>
+      </div>
+
+      <button id="btnRestart">Restart</button>
+
+      <pre id="debugBox"></pre>
+    </aside>
+  </div>
+
+  <script src="/static/game.js"></script>
+  <script src="/static/ws_controls.js"></script>
+</body>
+</html>
