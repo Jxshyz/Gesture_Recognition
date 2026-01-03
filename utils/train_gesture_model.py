@@ -1,9 +1,9 @@
 # utils/train_gesture_model.py
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import joblib
@@ -12,8 +12,8 @@ from sklearn.ensemble import GradientBoostingClassifier
 
 from utils.feature_extractor import window_features
 
-
-DATA_ROOT = Path("./data_raw")
+# ✅ Bei dir liegen die Daten unter data/recordings/...
+DATA_ROOT = Path("./data")
 MODELS = Path("./models")
 MODELS.mkdir(exist_ok=True)
 
@@ -36,59 +36,100 @@ def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
     return out
 
 
+def _load_npz_any(npz_path: Path) -> np.ndarray | None:
+    """
+    Robust .npz loader:
+    - bevorzugt keys: "seq", "data", "arr_0"
+    - fallback: erstes array im npz
+    """
+    preferred_keys = ("seq", "data", "arr_0")
+    npz = np.load(npz_path, allow_pickle=True)
+
+    arr = None
+    for k in preferred_keys:
+        if k in npz.files:
+            arr = npz[k]
+            break
+
+    if arr is None and len(npz.files) > 0:
+        arr = npz[npz.files[0]]
+
+    return arr
+
+
 def load_sequences() -> Tuple[List[np.ndarray], List[str]]:
     """
-    Lädt alle *.npy aus data_raw/<gesture>/<person>/*.npy
+    Lädt alle *.npy und *.npz rekursiv unter:
+      - ./data/recordings/**/<gesture>/*.npy|*.npz   (dein aktuelles Layout)
+      - ./data/<gesture>/<person>/*.npy|*.npz       (alte Layouts werden mit unterstützt)
 
-    Erwartet pro Datei:
-      - neu: (T,63)
-      - alt: (63,) -> wird zu (1,63)
+    Label = Name des Parent-Folders der Sample-Datei (also der Gesten-Ordnername).
     """
     seqs: List[np.ndarray] = []
     labels: List[str] = []
 
     if not DATA_ROOT.exists():
-        raise FileNotFoundError(f"{DATA_ROOT} nicht gefunden. Erst aufnehmen: python main.py record_data ...")
+        raise FileNotFoundError(f"{DATA_ROOT} nicht gefunden. Ordner existiert nicht.")
 
-    for gesture_dir in sorted(DATA_ROOT.glob("*")):
-        if not gesture_dir.is_dir():
-            continue
-        gesture = gesture_dir.name
+    # ✅ Wenn recordings existiert, nutze den; sonst fallback auf data/
+    search_root = DATA_ROOT / "recordings" if (DATA_ROOT / "recordings").exists() else DATA_ROOT
 
-        for person_dir in gesture_dir.glob("*"):
-            if not person_dir.is_dir():
-                continue
+    files = list(search_root.rglob("*.npy")) + list(search_root.rglob("*.npz"))
+    if not files:
+        return seqs, labels
 
-            for npy_file in person_dir.glob("*.npy"):
-                arr = np.load(npy_file)
-                arr = np.asarray(arr, dtype=np.float32)
-
-                # normalize shape to (T,63)
-                if arr.ndim == 1:
-                    if arr.shape[0] != 63:
-                        print(f"[WARN] Skip {npy_file} shape={arr.shape}")
-                        continue
-                    arr = arr.reshape(1, 63)
-                elif arr.ndim == 2:
-                    if arr.shape[1] != 63:
-                        print(f"[WARN] Skip {npy_file} shape={arr.shape}")
-                        continue
-                else:
-                    print(f"[WARN] Skip {npy_file} shape={arr.shape}")
+    for f in sorted(files):
+        try:
+            if f.suffix.lower() == ".npy":
+                arr = np.load(f, allow_pickle=True)
+            else:
+                arr = _load_npz_any(f)
+                if arr is None:
+                    print(f"[WARN] Skip {f} (empty npz)")
                     continue
 
-                # remove NaNs/Infs just in case
-                arr = np.nan_to_num(arr, nan=0.0, posinf=1e3, neginf=-1e3)
+            arr = np.asarray(arr, dtype=np.float32)
 
-                seqs.append(arr)
-                labels.append(gesture)
+            # --- normalize shape ---
+            # erlaubt:
+            #  (63,)             -> (1,63)
+            #  (T,63)            -> ok
+            #  (T,21,3)          -> (T,63)
+            if arr.ndim == 1:
+                if arr.shape[0] != 63:
+                    print(f"[WARN] Skip {f} shape={arr.shape} (expected 63)")
+                    continue
+                arr = arr.reshape(1, 63)
+
+            elif arr.ndim == 2:
+                if arr.shape[1] != 63:
+                    print(f"[WARN] Skip {f} shape={arr.shape} (expected (T,63))")
+                    continue
+
+            elif arr.ndim == 3:
+                # (T,21,3) -> (T,63)
+                if arr.shape[1:] == (21, 3):
+                    arr = arr.reshape(arr.shape[0], 63)
+                else:
+                    print(f"[WARN] Skip {f} shape={arr.shape} (expected (T,21,3))")
+                    continue
+            else:
+                print(f"[WARN] Skip {f} shape={arr.shape}")
+                continue
+
+            arr = np.nan_to_num(arr, nan=0.0, posinf=1e3, neginf=-1e3)
+
+            gesture_label = f.parent.name  # ✅ z.B. "pinch" / "finger_pistol" / "neutral_palm"
+            seqs.append(arr)
+            labels.append(gesture_label)
+
+        except Exception as e:
+            print(f"[WARN] Skip {f} ({e})")
 
     return seqs, labels
 
 
-def build_windows(
-    seqs: List[np.ndarray], labels: List[str], window_size: int = WINDOW_SIZE
-) -> Tuple[np.ndarray, np.ndarray]:
+def build_windows(seqs: List[np.ndarray], labels: List[str], window_size: int = WINDOW_SIZE) -> Tuple[np.ndarray, np.ndarray]:
     """
     Aus jeder Sequenz werden Trainingswindows generiert:
       - wenn len >= window_size: sliding windows (step=1)
@@ -104,10 +145,9 @@ def build_windows(
     for seq, lab in zip(seqs, labels):
         T = seq.shape[0]
         if T >= window_size:
-            step = 1
-            for start in range(0, T - window_size + 1, step):
+            for start in range(0, T - window_size + 1):
                 win = seq[start : start + window_size]  # (12,63)
-                feat = window_features(win)  # (189,)
+                feat = window_features(win)             # (189,)
                 X_list.append(feat)
                 y_list.append(lab)
         else:
@@ -116,14 +156,15 @@ def build_windows(
             X_list.append(feat)
             y_list.append(lab)
 
+    if not X_list:
+        return np.zeros((0, 189), dtype=np.float32), np.asarray([], dtype=str)
+
     X = np.asarray(X_list, dtype=np.float32)
-    y = np.asarray(y_list)
+    y = np.asarray(y_list, dtype=str)
     return X, y
 
 
-def _cap_garbage(
-    X: np.ndarray, y: np.ndarray, garbage_label: str = "garbage", max_ratio: float = 1.3
-) -> Tuple[np.ndarray, np.ndarray]:
+def _cap_garbage(X: np.ndarray, y: np.ndarray, garbage_label: str = "garbage", max_ratio: float = 1.3) -> Tuple[np.ndarray, np.ndarray]:
     """
     Begrenzt die Anzahl Garbage-Samples, damit es nicht dominiert.
     max_ratio: garbage <= max_ratio * mean(count(other classes))
@@ -141,7 +182,6 @@ def _cap_garbage(
     if g_count <= cap:
         return X, y
 
-    # indices
     idx_g = np.where(y == garbage_label)[0]
     idx_o = np.where(y != garbage_label)[0]
     np.random.shuffle(idx_g)
@@ -157,18 +197,25 @@ def train_and_save():
     seqs, labels = load_sequences()
     print(f"[INFO] Geladen: {len(seqs)} Sequenzen")
 
+    if len(seqs) == 0:
+        print("[ERROR] Keine Samples gefunden. Prüfe, ob unter ./data/recordings/... Dateien *.npy oder *.npz liegen.")
+        print("        Beispiel erwartet: data/recordings/josh/Right/pinch/<sample>.npz")
+        return
+
     print("[INFO] Baue Windows (189 Features)...")
     X, y = build_windows(seqs, labels, WINDOW_SIZE)
     print(f"[INFO] Windows: X={X.shape}, y={y.shape}")
 
-    # Garbage deckeln
+    if X.shape[0] == 0:
+        print("[ERROR] Keine Windows erzeugt (evtl. Sample-Shape falsch).")
+        return
+
     X, y = _cap_garbage(X, y, garbage_label="garbage", max_ratio=1.3)
 
-    # Stats
     counts = Counter(y)
     print("[INFO] Class counts (after cap):")
     for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
-        print(f"  {k:>12}: {v}")
+        print(f"  {k:>14}: {v}")
 
     print("[INFO] Label-Encoding...")
     le = LabelEncoder()

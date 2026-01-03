@@ -206,6 +206,59 @@ def main():
             on_telemetry=None,
         )
         return
+    
+    # -------------------------------------------------------------------------
+    # PHONE: Pfeiltasten/Enter -> echtes Android (ADB)
+    # -------------------------------------------------------------------------
+    elif cmd == "phone_keys":
+        # optional: python main.py phone_keys <serial>
+        serial = sys.argv[2] if len(sys.argv) >= 3 else None
+
+        from utils.phone_keyboard_control import run_phone_keyboard_control, PhoneKeyConfig
+
+        run_phone_keyboard_control(
+            PhoneKeyConfig(
+                serial=serial,
+                adb_path=r"C:\Users\Joshua\AppData\Local\Android\Sdk\platform-tools\adb.exe",
+                repeat_min_interval_s=0.05,
+            )
+        )
+        return
+    
+    # -------------------------------------------------------------------------
+    # PHONE: Pfeiltasten/Enter -> echtes Android (Touch via ADB swipe/tap)
+    # -------------------------------------------------------------------------
+    elif cmd == "phone_touch":
+        serial = sys.argv[2] if len(sys.argv) >= 3 else None
+
+        from utils.phone_touch_control import run_phone_touch_control, TouchConfig
+
+        run_phone_touch_control(
+            TouchConfig(
+                serial=serial,
+                adb_path=r"C:\Users\Joshua\AppData\Local\Android\Sdk\platform-tools\adb.exe",  # falls nötig
+                repeat_min_interval_s=0.08,
+                anchor_x_ratio=0.50,
+                anchor_y_ratio=0.75,
+                swipe_dx_ratio=0.18,
+                swipe_dy_ratio=0.18,
+                swipe_duration_ms=80,
+                tap_x_ratio=0.50,
+                tap_y_ratio=0.55,
+            )
+        )
+        return
+    
+    # -------------------------------------------------------------------------
+    # PHONE LIVE (2 Startsignale: palm -> gesture, pistol -> tracking)
+    # -------------------------------------------------------------------------
+    elif cmd == "phone_live":
+        from utils.phone_gesture_live import run_phone_gesture_live
+
+        cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        run_phone_gesture_live(camera_index=cam_idx)
+        return
+
 
     # -------------------------------------------------------------------------
     # 7) Standalone-Tetris
