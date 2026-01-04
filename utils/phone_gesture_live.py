@@ -15,7 +15,6 @@ from utils.prediction_utils import PredictionAggregator
 from utils.phone_controller import AndroidDevice
 
 
-# Android keycodes (DPAD + ENTER)
 KEYCODE_DPAD_LEFT = 21
 KEYCODE_DPAD_RIGHT = 22
 KEYCODE_DPAD_UP = 19
@@ -26,49 +25,39 @@ KEYCODE_ENTER = 66
 @dataclass
 class PhoneLiveConfig:
     camera_index: int = 0
-
-    # must match training
     window_size: int = 12
 
-    # labels
     neutral_label: str = "neutral_palm"
     pistol_label: str = "finger_pistol"
     pinch_label: str = "pinch"
-    # garbage exists in dataset, but: we do not use it as a trigger anymore
-    garbage_label: str = "garbage"
 
-    # start holds
     palm_hold_s: float = 0.5
     pistol_hold_s: float = 0.5
     start_min_conf: float = 0.60
 
-    # prediction rate
-    pred_min_interval_s: float = 0.06  # ~16.6/s
+    pred_min_interval_s: float = 0.06
 
-    # gesture mode commit stability
     commit_min_samples: int = 3
     commit_min_conf: float = 0.60
     commit_frame_conf_gate: float = 0.55
-
-    # cooldown after gesture commit
     cooldown_s: float = 0.35
 
-    # tracking touch send rate
-    track_send_hz: float = 18.0
-    track_smooth_alpha: float = 0.25
+    # Ohne garbage: reject, wenn Conf zu klein (damit no-hand nicht random triggert)
+    reject_below_conf: float = 0.55
 
-    # pinch geometry thresholds (normalized coords)
-    pinch_on_dist: float = 0.035
-    pinch_off_dist: float = 0.050
+    # Drag movement (kohärent)
+    drag_send_hz: float = 8.0
+    drag_move_min_px: int = 14
+    drag_duration_ms: int = 110
 
-    # pinch must be stable before we enter pinch-hold (drag)
     pinch_hold_s: float = 0.30
+    pinch_min_conf: float = 0.62
     pinch_release_s: float = 0.12
 
-    # leaving PINCH_HOLD requires pistol stable this long (drop)
-    pistol_return_s: float = 0.15
+    track_smooth_alpha: float = 0.25
 
-    # adb
+    display_scale: float = 2.0
+
     adb_path: Optional[str] = None
     serial: Optional[str] = None
 
@@ -78,7 +67,7 @@ STATE_COLORS = {
     "GESTURE_ARMED": (0, 255, 0),
     "GESTURE_RECORDING": (0, 150, 255),
     "TRACKING": (255, 130, 130),
-    "PINCH_HOLD": (255, 220, 120),
+    "DRAGGING": (255, 220, 120),
     "COOLDOWN": (0, 0, 255),
 }
 
@@ -87,11 +76,10 @@ def _extract_lm(results) -> Optional[np.ndarray]:
     if not results.multi_hand_landmarks:
         return None
     hand = results.multi_hand_landmarks[0]
-    return np.array([[p.x, p.y, p.z] for p in hand.landmark], dtype=np.float32)  # (21,3)
+    return np.array([[p.x, p.y, p.z] for p in hand.landmark], dtype=np.float32)
 
 
 def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
-    """(N,63)->(T,63)"""
     N, D = seq.shape
     if N == T:
         return seq
@@ -104,16 +92,14 @@ def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
 
 
 def _map_label_to_keyevent(label: str) -> Optional[int]:
-    # gesture-mode mapping -> phone DPAD/ENTER
+    # swipe_up / rotate_right removed (training removed)
     if label == "swipe_left":
         return KEYCODE_DPAD_LEFT
     if label == "swipe_right":
         return KEYCODE_DPAD_RIGHT
-    if label == "swipe_up":
-        return KEYCODE_DPAD_UP
     if label == "swipe_down":
         return KEYCODE_DPAD_DOWN
-    if label in ("rotate_left", "rotate_right"):
+    if label == "rotate_left":
         return KEYCODE_DPAD_UP
     if label in ("close_fist", "pinch"):
         return KEYCODE_ENTER
@@ -123,9 +109,9 @@ def _map_label_to_keyevent(label: str) -> Optional[int]:
 def _draw_phone_inset(frame: np.ndarray, phone_w: int, phone_h: int, cursor_xy: Tuple[int, int], active: bool):
     h, w = frame.shape[:2]
 
-    inset_w = 170
+    inset_w = 220
     inset_h = int(inset_w * (phone_h / max(1, phone_w)))
-    inset_h = max(220, min(inset_h, 320))
+    inset_h = max(260, min(inset_h, 380))
 
     x0 = w - inset_w - 12
     y0 = h - inset_h - 12
@@ -136,69 +122,51 @@ def _draw_phone_inset(frame: np.ndarray, phone_w: int, phone_h: int, cursor_xy: 
     cv2.rectangle(frame, (x0, y0), (x1, y1), (200, 200, 200), 2)
 
     title = "PHONE POINTER" + (" (ACTIVE)" if active else "")
-    cv2.putText(frame, title, (x0, y0 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(frame, title, (x0, y0 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (255, 255, 255), 2, cv2.LINE_AA)
 
     cx, cy = cursor_xy
     ix = int(x0 + (cx / max(1, phone_w)) * inset_w)
     iy = int(y0 + (cy / max(1, phone_h)) * inset_h)
 
-    cv2.circle(frame, (ix, iy), 7, (0, 0, 255), -1)
-    cv2.circle(frame, (ix, iy), 10, (255, 255, 255), 2)
-
-    cv2.putText(
-        frame,
-        f"{cx},{cy}",
-        (x0 + 8, y1 - 10),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
+    cv2.circle(frame, (ix, iy), 8, (0, 0, 255), -1)
+    cv2.circle(frame, (ix, iy), 12, (255, 255, 255), 2)
 
 
 def _draw_ui(frame, mode: str,
-             palm_prog: float, pistol_prog: float,
-             pinch_prog: float,
+             palm_prog: float, pistol_prog: float, pinch_prog: float,
              live_label: str, live_conf: float,
              last_commit: str,
              cursor_xy: Tuple[int, int],
-             phone_size: Tuple[int, int],
-             pinch_active: bool):
-    h, w = frame.shape[:2]
+             phone_size: Tuple[int, int]):
+    h, _ = frame.shape[:2]
     col = STATE_COLORS.get(mode, (200, 200, 200))
 
-    cv2.rectangle(frame, (10, 10), (620, 200), col, -1)
-    cv2.putText(frame, f"MODE: {mode}", (22, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 0, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, f"LIVE: {live_label} ({live_conf:.2f})", (22, 82), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 0, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, f"LAST: {last_commit}", (22, 118), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.rectangle(frame, (10, 10), (760, 210), col, -1)
+    cv2.putText(frame, f"MODE: {mode}", (22, 52), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(frame, f"LIVE: {live_label} ({live_conf:.2f})", (22, 96), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(frame, f"LAST: {last_commit}", (22, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2, cv2.LINE_AA)
 
-    cv2.putText(frame, f"PINCH: {'HOLD' if pinch_active else 'off'}", (22, 152),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, f"pinch_gate: {pinch_prog*100:.0f}%", (250, 152),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 2, cv2.LINE_AA)
-
-    bar_w = 420
-    bar_h = 14
+    bar_w = 520
+    bar_h = 16
     x0 = 10
-    y0 = h - 98
+    y0 = h - 122
 
     def bar(y, p, title):
-        cv2.putText(frame, title, (x0, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, title, (x0, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.rectangle(frame, (x0, y), (x0 + bar_w, y + bar_h), (40, 40, 40), -1)
         fill = int(bar_w * max(0.0, min(1.0, p)))
         cv2.rectangle(frame, (x0, y), (x0 + fill, y + bar_h), (230, 230, 230), -1)
 
     bar(y0, palm_prog, "Palm hold (exit tracking / enter gesture)")
-    bar(y0 + 30, pistol_prog, "Pistol hold (enter tracking)")
-    bar(y0 + 60, pinch_prog, "Pinch hold (enter PINCH_HOLD / drag)")
+    bar(y0 + 38, pistol_prog, "Pistol hold (enter tracking)")
+    bar(y0 + 76, pinch_prog, "Pinch hold (start drag)")
 
     sw, sh = phone_size
     cx, cy = cursor_xy
     cv2.putText(frame, f"CURSOR(phone): {cx},{cy}  screen:{sw}x{sh}",
-                (10, h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+                (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
 
-    _draw_phone_inset(frame, sw, sh, (cx, cy), active=(mode in ("TRACKING", "PINCH_HOLD")))
+    _draw_phone_inset(frame, sw, sh, (cx, cy), active=(mode in ("TRACKING", "DRAGGING")))
 
 
 def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLiveConfig()):
@@ -223,27 +191,25 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
     mode = "IDLE"
     last_commit = "-"
+
+    raw_label, raw_conf = "-", 0.0
     live_label, live_conf = "-", 0.0
 
     palm_hold_t = 0.0
     pistol_hold_t = 0.0
-    pistol_return_t = 0.0
+    pinch_hold_t = 0.0
+    pinch_missing_t = 0.0
 
     cooldown_until = 0.0
     rec_frames: List[np.ndarray] = []
     end_counter = 0
 
-    # cursor on phone coords
     cursor_x = dev.screen_w // 2
     cursor_y = dev.screen_h // 2
-    last_send_t = 0.0
+
     last_drag_x = cursor_x
     last_drag_y = cursor_y
-
-    # pinch gating + state
-    pinch_hold_t = 0.0
-    pinch_release_t = 0.0
-    pinch_active = False  # "gate open" -> PINCH_HOLD
+    last_drag_send_t = 0.0
 
     last_loop_t = time.time()
 
@@ -252,6 +218,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
         y_enc, conf = predict_feat189(model, feat189)
         lab = decode_label(y_enc, le)
         return lab, float(conf)
+
+    tracking_allowed = {cfg.neutral_label, cfg.pistol_label, cfg.pinch_label}
+
+    cv2.namedWindow("PHONE LIVE", cv2.WINDOW_NORMAL)
 
     try:
         while True:
@@ -273,12 +243,11 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
             x63 = None
             if lm is not None:
-                x63 = normalize_landmarks([(float(x), float(y), float(z)) for x, y, z in lm])  # (63,)
+                x63 = normalize_landmarks([(float(x), float(y), float(z)) for x, y, z in lm])
                 window.append(x63)
                 if len(window) > cfg.window_size:
                     window.pop(0)
 
-                # cursor from index tip
                 idx = lm[8, :2]
                 nx, ny = float(idx[0]), float(idx[1])
                 tx = int(nx * dev.screen_w)
@@ -288,49 +257,36 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                 cursor_x = int((1 - a) * cursor_x + a * tx)
                 cursor_y = int((1 - a) * cursor_y + a * ty)
 
-            # -----------------------------
-            # LIVE model prediction (throttled)
-            # -----------------------------
             if x63 is not None and len(window) == cfg.window_size:
                 win12 = np.asarray(window, dtype=np.float32)
                 tmp_label, tmp_conf = classify(win12)
                 if pred_agg.feed(tmp_label, tmp_conf, now):
-                    live_label, live_conf = tmp_label, tmp_conf
+                    raw_label, raw_conf = tmp_label, tmp_conf
 
-            # -----------------------------
-            # pinch signal (GEOMETRY ONLY in tracking world)
-            # -> so swipe/garbage etc cannot trigger anything
-            # -----------------------------
-            pinch_signal = False
-            if lm is not None:
-                thumb = lm[4, :2]
-                idx = lm[8, :2]
-                d = float(np.linalg.norm(thumb - idx))
+            # Reject low confidence globally (no garbage class)
+            if raw_conf < cfg.reject_below_conf:
+                raw_label = "-"
+                raw_conf = 0.0
 
-                # hysteresis
-                if pinch_active:
-                    pinch_signal = d < cfg.pinch_off_dist
+            # filter while tracking/dragging
+            if mode in ("TRACKING", "DRAGGING"):
+                if raw_label in tracking_allowed:
+                    live_label, live_conf = raw_label, raw_conf
                 else:
-                    pinch_signal = d < cfg.pinch_on_dist
+                    live_label, live_conf = "-", 0.0
+            else:
+                live_label, live_conf = raw_label, raw_conf
 
-            # -----------------------------
-            # progress defaults
-            # -----------------------------
             palm_prog = 0.0
             pistol_prog = 0.0
             pinch_prog = 0.0
 
-            # -----------------------------
-            # FSM
-            # -----------------------------
             if mode == "IDLE":
-                # palm -> gesture
                 if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
                     palm_hold_t += dt
                 else:
                     palm_hold_t = 0.0
 
-                # pistol -> tracking
                 if live_label == cfg.pistol_label and live_conf >= cfg.start_min_conf:
                     pistol_hold_t += dt
                 else:
@@ -347,27 +303,21 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                     last_commit = "ARM -> GESTURE"
                     palm_hold_t = cfg.palm_hold_s
                     pistol_hold_t = 0.0
-                    pistol_return_t = 0.0
                     pinch_hold_t = 0.0
-                    pinch_release_t = 0.0
-                    pinch_active = False
+                    pinch_missing_t = 0.0
 
                 elif pistol_hold_t >= cfg.pistol_hold_s:
-                    # once pistol recognized -> keep tracking continuously until pinch or palm
                     mode = "TRACKING"
                     last_commit = "ARM -> TRACKING"
                     palm_hold_t = 0.0
                     pistol_hold_t = cfg.pistol_hold_s
-                    pistol_return_t = 0.0
                     pinch_hold_t = 0.0
-                    pinch_release_t = 0.0
-                    pinch_active = False
-                    last_send_t = 0.0
+                    pinch_missing_t = 0.0
                     last_drag_x, last_drag_y = cursor_x, cursor_y
+                    last_drag_send_t = 0.0
 
             elif mode == "GESTURE_ARMED":
                 palm_prog = 1.0
-
                 if not (live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf):
                     mode = "GESTURE_RECORDING"
                     rec_frames = []
@@ -379,10 +329,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                 if x63 is not None:
                     rec_frames.append(x63)
 
-                # early commit only for true gestures (exclude neutral/pistol/garbage)
+                # commit only real gestures (exclude palm + pistol + "-" )
                 if (
                     live_label
-                    and live_label not in (cfg.neutral_label, cfg.pistol_label, cfg.garbage_label)
+                    and live_label not in (cfg.neutral_label, cfg.pistol_label, "-")
                     and live_conf >= cfg.commit_frame_conf_gate
                 ):
                     commit_agg.feed(live_label, live_conf, now)
@@ -402,10 +352,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                     commit_agg.reset()
                     palm_hold_t = 0.0
                     pistol_hold_t = 0.0
-                    pistol_return_t = 0.0
+                    pinch_hold_t = 0.0
+                    pinch_missing_t = 0.0
 
                 else:
-                    # end condition back to neutral
                     if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
                         end_counter += 1
                     else:
@@ -417,7 +367,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                             seg12 = _resample_to_T(seg, cfg.window_size)
                             seg_label, seg_conf = classify(seg12)
 
-                            if seg_label not in (cfg.neutral_label, cfg.pistol_label, cfg.garbage_label) and seg_conf >= cfg.commit_min_conf:
+                            if seg_conf < cfg.reject_below_conf:
+                                seg_label = "-"
+
+                            if seg_label not in (cfg.neutral_label, cfg.pistol_label, "-") and seg_conf >= cfg.commit_min_conf:
                                 key = _map_label_to_keyevent(seg_label)
                                 if key is not None:
                                     dev.keyevent(key)
@@ -431,38 +384,32 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                         commit_agg.reset()
                         palm_hold_t = 0.0
                         pistol_hold_t = 0.0
-                        pistol_return_t = 0.0
+                        pinch_hold_t = 0.0
+                        pinch_missing_t = 0.0
 
             elif mode == "TRACKING":
-                # continuous tracking once entered
                 pistol_prog = 1.0
 
-                # palm to exit tracking (to gesture)
                 if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
                     palm_hold_t += dt
                 else:
                     palm_hold_t = 0.0
                 palm_prog = min(1.0, palm_hold_t / cfg.palm_hold_s)
 
-                # pinch gating to enter PINCH_HOLD
-                if pinch_signal:
+                if live_label == cfg.pinch_label and live_conf >= cfg.pinch_min_conf:
                     pinch_hold_t += dt
-                    pinch_release_t = 0.0
                 else:
-                    pinch_release_t += dt
                     pinch_hold_t = 0.0
-
                 pinch_prog = min(1.0, pinch_hold_t / max(1e-6, cfg.pinch_hold_s))
 
                 if pinch_hold_t >= cfg.pinch_hold_s:
-                    mode = "PINCH_HOLD"
-                    pinch_active = True
+                    mode = "DRAGGING"
+                    last_commit = "PINCH -> DRAG START"
                     last_drag_x, last_drag_y = cursor_x, cursor_y
-                    last_send_t = 0.0
-                    pistol_return_t = 0.0
-                    last_commit = "TRACKING -> PINCH_HOLD"
+                    last_drag_send_t = 0.0
+                    pinch_hold_t = 0.0
+                    pinch_missing_t = 0.0
 
-                # palm exit has priority (so you can always escape)
                 if palm_hold_t >= cfg.palm_hold_s:
                     mode = "GESTURE_ARMED"
                     commit_agg.reset()
@@ -471,105 +418,78 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                     last_commit = "TRACKING -> GESTURE"
                     palm_hold_t = cfg.palm_hold_s
                     pinch_hold_t = 0.0
-                    pinch_release_t = 0.0
-                    pinch_active = False
-                    pistol_return_t = 0.0
+                    pinch_missing_t = 0.0
 
-            elif mode == "PINCH_HOLD":
-                pistol_prog = 1.0
-                pinch_active = True
-
-                # palm can exit immediately (escape)
-                if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
-                    palm_hold_t += dt
-                else:
-                    palm_hold_t = 0.0
-                palm_prog = min(1.0, palm_hold_t / cfg.palm_hold_s)
-
-                # in pinch hold: we drag while pinch signal stays on
-                # but we do NOT drop on pinch release alone
-                # -> drop only when finger pistol returns
-                if pinch_signal:
-                    pinch_release_t = 0.0
-                else:
-                    pinch_release_t += dt
-
-                # “return to pistol” detection -> this triggers DROP
+            elif mode == "DRAGGING":
+                # EASY EXIT: pistol => end drag immediately
                 if live_label == cfg.pistol_label and live_conf >= cfg.start_min_conf:
-                    pistol_return_t += dt
-                else:
-                    pistol_return_t = 0.0
-
-                # send drag segments (approx continuous drag)
-                if lm is not None:
-                    send_interval = 1.0 / max(1.0, cfg.track_send_hz)
-                    if (now - last_send_t) >= send_interval:
-                        last_send_t = now
-
-                        dx = abs(cursor_x - last_drag_x)
-                        dy = abs(cursor_y - last_drag_y)
-
-                        if dx + dy < 6:
-                            # hold approximation
-                            dev.swipe(cursor_x, cursor_y, cursor_x, cursor_y, duration_ms=220)
-                        else:
-                            dev.swipe(last_drag_x, last_drag_y, cursor_x, cursor_y, duration_ms=80)
-                            last_drag_x, last_drag_y = cursor_x, cursor_y
-
-                # DROP condition: pistol stable
-                if pistol_return_t >= cfg.pistol_return_s:
                     mode = "TRACKING"
-                    pinch_active = False
+                    last_commit = "PISTOL -> DRAG END -> TRACKING"
+                    pinch_missing_t = 0.0
                     pinch_hold_t = 0.0
-                    pinch_release_t = 0.0
                     last_drag_x, last_drag_y = cursor_x, cursor_y
-                    last_commit = "PINCH_HOLD -> TRACKING (DROP)"
-                    pistol_return_t = 0.0
+                    last_drag_send_t = 0.0
+                else:
+                    # pinch missing => end drag quickly
+                    if not (live_label == cfg.pinch_label and live_conf >= cfg.pinch_min_conf):
+                        pinch_missing_t += dt
+                    else:
+                        pinch_missing_t = 0.0
 
-                # palm exit has priority
-                if palm_hold_t >= cfg.palm_hold_s:
-                    mode = "GESTURE_ARMED"
-                    commit_agg.reset()
-                    rec_frames = []
-                    end_counter = 0
-                    last_commit = "PINCH_HOLD -> GESTURE"
-                    palm_hold_t = cfg.palm_hold_s
-                    pinch_active = False
-                    pinch_hold_t = 0.0
-                    pinch_release_t = 0.0
-                    pistol_return_t = 0.0
+                    if pinch_missing_t >= cfg.pinch_release_s:
+                        mode = "TRACKING"
+                        last_commit = "PINCH LOST -> DRAG END -> TRACKING"
+                        pinch_missing_t = 0.0
+                        pinch_hold_t = 0.0
+                        last_drag_x, last_drag_y = cursor_x, cursor_y
+                        last_drag_send_t = 0.0
+
+                    # drag move segments (coherent)
+                    if lm is not None and mode == "DRAGGING":
+                        interval = 1.0 / max(1.0, cfg.drag_send_hz)
+                        if (now - last_drag_send_t) >= interval:
+                            dx = abs(cursor_x - last_drag_x)
+                            dy = abs(cursor_y - last_drag_y)
+                            if (dx + dy) >= cfg.drag_move_min_px:
+                                dev.swipe(last_drag_x, last_drag_y, cursor_x, cursor_y, duration_ms=cfg.drag_duration_ms)
+                                last_drag_x, last_drag_y = cursor_x, cursor_y
+                                last_drag_send_t = now
 
             elif mode == "COOLDOWN":
                 if now >= cooldown_until:
                     mode = "IDLE"
                     palm_hold_t = 0.0
                     pistol_hold_t = 0.0
-                    pistol_return_t = 0.0
+                    pinch_hold_t = 0.0
+                    pinch_missing_t = 0.0
                     commit_agg.reset()
                     last_commit = "COOLDOWN -> IDLE"
 
-            # UI + aim dot
             _draw_ui(
                 frame=frame,
                 mode=mode,
                 palm_prog=min(1.0, palm_hold_t / cfg.palm_hold_s) if cfg.palm_hold_s > 0 else 0.0,
                 pistol_prog=min(1.0, pistol_hold_t / cfg.pistol_hold_s) if cfg.pistol_hold_s > 0 else 0.0,
-                pinch_prog=pinch_prog if mode in ("TRACKING", "PINCH_HOLD") else 0.0,
+                pinch_prog=pinch_prog if mode == "TRACKING" else 0.0,
                 live_label=live_label,
                 live_conf=float(live_conf),
                 last_commit=last_commit,
                 cursor_xy=(cursor_x, cursor_y),
                 phone_size=(dev.screen_w, dev.screen_h),
-                pinch_active=pinch_active,
             )
 
-            if lm is not None and mode in ("TRACKING", "PINCH_HOLD"):
+            if lm is not None and mode in ("TRACKING", "DRAGGING"):
                 idx = lm[8, :2]
                 cx = int(idx[0] * frame.shape[1])
                 cy = int(idx[1] * frame.shape[0])
-                cv2.circle(frame, (cx, cy), 10, (0, 0, 255), -1)
+                cv2.circle(frame, (cx, cy), 12, (0, 0, 255), -1)
 
-            cv2.imshow("PHONE LIVE (tracking + pinch-hold)", frame)
+            if cfg.display_scale != 1.0:
+                frame_show = cv2.resize(frame, None, fx=cfg.display_scale, fy=cfg.display_scale, interpolation=cv2.INTER_LINEAR)
+            else:
+                frame_show = frame
+
+            cv2.imshow("PHONE LIVE", frame_show)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break

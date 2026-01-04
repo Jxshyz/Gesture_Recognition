@@ -10,60 +10,39 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
-from utils.feature_extractor import normalize_landmarks  # muss existieren wie in infer_runtime
+from utils.feature_extractor import normalize_landmarks
 
 
-# ---------------------------------------------------------
-# Config
-# ---------------------------------------------------------
 @dataclass
 class RecordConfig:
-    # Aufnahme-Setup
     fps: float = 30.0
     record_s: float = 2.0
     cooldown_s: float = 2.0
 
-    # wie Training: 12 Frames Window
     window_size: int = 12
 
-    # Samples pro Klasse
     samples_per_gesture: int = 10
-    garbage_samples: int = 20
 
-    # Mediapipe
     min_det_conf: float = 0.6
     min_track_conf: float = 0.6
 
-    # Output
     out_dir: Path = Path("./data/recordings")
 
 
-# Reihenfolge der Gesten, wenn "all" aufgenommen wird
+# Entfernt: swipe_up, rotate_right, neutral_peace, garbage
 GESTURE_ORDER: List[str] = [
     "swipe_left",
     "swipe_right",
-    "swipe_up",
     "swipe_down",
     "rotate_left",
-    "rotate_right",
     "close_fist",
     "neutral_palm",
-    "neutral_peace",
-    # neu:
     "finger_pistol",
-    "pinch",  # Zeigefinger auf Daumen (später Click/Drag)
-    # am Ende:
-    "garbage",
+    "pinch",
 ]
 
 
-# ---------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------
 def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
-    """
-    seq: (N,63) -> (T,63) linear interpolation
-    """
     N, D = seq.shape
     if N <= 0:
         return np.zeros((T, D), dtype=np.float32)
@@ -79,49 +58,31 @@ def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
 
 
 def _pick_hand(results, desired_hand: str) -> Optional[List[Tuple[float, float, float]]]:
-    """
-    desired_hand: "Left" oder "Right"
-    returns: list of 21 (x,y,z) oder None
-    """
     if not results.multi_hand_landmarks:
         return None
 
-    # Wenn Mediapipe handedness liefert, matchen wir.
     if results.multi_handedness and len(results.multi_handedness) == len(results.multi_hand_landmarks):
         for idx, hd in enumerate(results.multi_handedness):
-            label = hd.classification[0].label  # "Left"/"Right"
+            label = hd.classification[0].label
             if label.lower() == desired_hand.lower():
                 hand = results.multi_hand_landmarks[idx]
                 return [(p.x, p.y, p.z) for p in hand.landmark]
 
-    # fallback: erste Hand
     hand = results.multi_hand_landmarks[0]
     return [(p.x, p.y, p.z) for p in hand.landmark]
 
 
-def _draw_ui_box(
-    frame_bgr: np.ndarray,
-    border_bgr: Tuple[int, int, int],
-    title: str,
-    subtitle: str,
-    timer_text: str,
-):
-    """
-    Weißes Quadrat oben links, roter/grüner Rand + Text
-    """
+def _draw_ui_box(frame_bgr: np.ndarray, border_bgr: Tuple[int, int, int], title: str, subtitle: str, timer_text: str):
     x0, y0 = 20, 20
     w, h = 320, 160
 
-    # white fill
     cv2.rectangle(frame_bgr, (x0, y0), (x0 + w, y0 + h), (245, 245, 245), -1)
-    # border
     cv2.rectangle(frame_bgr, (x0, y0), (x0 + w, y0 + h), border_bgr, 6)
 
     cv2.putText(frame_bgr, title, (x0 + 14, y0 + 52), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (10, 10, 10), 2, cv2.LINE_AA)
     cv2.putText(frame_bgr, subtitle, (x0 + 14, y0 + 92), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (30, 30, 30), 2, cv2.LINE_AA)
     cv2.putText(frame_bgr, timer_text, (x0 + 14, y0 + 132), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (10, 10, 10), 2, cv2.LINE_AA)
 
-    # keys hint
     cv2.putText(
         frame_bgr,
         "q=quit | s=skip sample | n=skip gesture",
@@ -138,9 +99,6 @@ def _ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
 
-# ---------------------------------------------------------
-# Public API (used by main.py)
-# ---------------------------------------------------------
 def run_record(
     gesture_arg: str,
     name: str,
@@ -148,30 +106,18 @@ def run_record(
     hand: str = "Right",
     cfg: RecordConfig = RecordConfig(),
 ):
-    """
-    gesture_arg:
-      - "all" -> nimmt alle Gesten in GESTURE_ORDER auf
-      - "<gesture_name>" -> nimmt nur diese Geste auf
-    hand: "Left" / "Right"
-    """
     gesture_arg = gesture_arg.lower().strip()
     desired_hand = "Right" if str(hand).lower().startswith("r") else "Left"
 
-    # Build recording plan
     if gesture_arg == "all":
-        plan: List[Tuple[str, int]] = []
-        for g in GESTURE_ORDER:
-            if g == "garbage":
-                plan.append((g, cfg.garbage_samples))
-            else:
-                plan.append((g, cfg.samples_per_gesture))
+        plan = [(g, cfg.samples_per_gesture) for g in GESTURE_ORDER]
     else:
-        # single gesture
-        g = gesture_arg
-        n = cfg.garbage_samples if g == "garbage" else cfg.samples_per_gesture
-        plan = [(g, n)]
+        if gesture_arg not in set(GESTURE_ORDER):
+            raise ValueError(
+                f"Unbekannte Geste '{gesture_arg}'. Erlaubt: {GESTURE_ORDER} (garbage ist entfernt)"
+            )
+        plan = [(gesture_arg, cfg.samples_per_gesture)]
 
-    # Setup camera + mediapipe
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
         raise RuntimeError(f"Kamera {camera_index} konnte nicht geöffnet werden.")
@@ -184,12 +130,11 @@ def run_record(
         min_tracking_confidence=cfg.min_track_conf,
     )
 
-    # Output base dir
     out_base = cfg.out_dir / name / desired_hand
     _ensure_dir(out_base)
 
     print("\n============================================================")
-    print("RECORD MODE")
+    print("RECORD MODE (NO GARBAGE)")
     print(f"  user/name:     {name}")
     print(f"  hand:          {desired_hand}")
     print(f"  camera_index:  {camera_index}")
@@ -199,10 +144,7 @@ def run_record(
     print(f"  out_dir:       {out_base.resolve()}")
     print("============================================================\n")
 
-    # timing
     frame_interval = 1.0 / float(cfg.fps)
-
-    # state
     quit_all = False
 
     try:
@@ -216,9 +158,7 @@ def run_record(
 
             sample_idx = 0
             while sample_idx < n_samples and not quit_all:
-                # ---------------------------
                 # COOLDOWN (red)
-                # ---------------------------
                 t0 = time.time()
                 while True:
                     now = time.time()
@@ -236,10 +176,7 @@ def run_record(
                     if results.multi_hand_landmarks:
                         mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
 
-                    title = "COOLDOWN"
-                    subtitle = f"{gesture}  ({sample_idx+1}/{n_samples})"
-                    timer_text = f"{remaining:0.2f}s"
-                    _draw_ui_box(frame, (0, 0, 255), title, subtitle, timer_text)
+                    _draw_ui_box(frame, (0, 0, 255), "COOLDOWN", f"{gesture} ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s")
 
                     cv2.imshow("Record Data", frame)
                     key = cv2.waitKey(1) & 0xFF
@@ -247,20 +184,16 @@ def run_record(
                         quit_all = True
                         break
                     if key == ord("n"):
-                        # skip this gesture
                         sample_idx = n_samples
                         break
                     if key == ord("s"):
-                        # skip this sample cooldown and go next sample
                         remaining = 0
                         break
 
                 if quit_all or sample_idx >= n_samples:
                     break
 
-                # ---------------------------
                 # RECORDING (green)
-                # ---------------------------
                 seq: List[np.ndarray] = []
                 t_start = time.time()
                 next_sample_t = t_start
@@ -283,19 +216,14 @@ def run_record(
                     if results.multi_hand_landmarks:
                         mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
 
-                    # sample at fps target
                     if now >= next_sample_t:
                         next_sample_t += frame_interval
-
                         lm = _pick_hand(results, desired_hand=desired_hand)
                         if lm is not None:
                             x63 = normalize_landmarks(lm).astype(np.float32, copy=False)
                             seq.append(x63)
 
-                    title = "RECORDING"
-                    subtitle = f"{gesture}  ({sample_idx+1}/{n_samples})"
-                    timer_text = f"{remaining:0.2f}s | frames: {len(seq)}"
-                    _draw_ui_box(frame, (0, 255, 0), title, subtitle, timer_text)
+                    _draw_ui_box(frame, (0, 255, 0), "RECORDING", f"{gesture} ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s | frames:{len(seq)}")
 
                     cv2.imshow("Record Data", frame)
                     key = cv2.waitKey(1) & 0xFF
@@ -303,24 +231,21 @@ def run_record(
                         quit_all = True
                         break
                     if key == ord("n"):
-                        sample_idx = n_samples  # skip gesture
+                        sample_idx = n_samples
                         break
                     if key == ord("s"):
-                        # skip this sample (no save)
                         seq = []
                         break
 
                 if quit_all or sample_idx >= n_samples:
                     break
 
-                # Save if we got some frames
                 if len(seq) < 4:
                     print(f"  [WARN] too few frames ({len(seq)}). Not saved. Repeat sample.")
-                    # repeat same sample_idx
                     continue
 
-                seq_arr = np.asarray(seq, dtype=np.float32)           # (N,63)
-                seq12 = _resample_to_T(seq_arr, cfg.window_size)      # (12,63)
+                seq_arr = np.asarray(seq, dtype=np.float32)
+                seq12 = _resample_to_T(seq_arr, cfg.window_size)
 
                 ts = int(time.time())
                 out_path = gesture_dir / f"{gesture}_{name}_{desired_hand}_{ts}_{sample_idx:03d}.npz"
@@ -337,7 +262,6 @@ def run_record(
                     ts=float(time.time()),
                 )
                 print(f"  saved: {out_path.name} | raw_frames={seq_arr.shape[0]}")
-
                 sample_idx += 1
 
         print("\nDONE. Recording finished.")
