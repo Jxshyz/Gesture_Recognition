@@ -1,5 +1,17 @@
 import threading
 
+import socket
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+def send_finger_position(x, y):
+    """
+    x, y ∈ [0,1]  (normalisiert)
+    """
+    msg = f"{x} {y}"
+    sock.sendto(msg.encode(), ("127.0.0.1", 5005))
+
+
 _latest_frame = None
 _lock = threading.Lock()
 
