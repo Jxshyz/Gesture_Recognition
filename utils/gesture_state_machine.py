@@ -11,7 +11,7 @@ class GSMConfig:
     # Arm-Geste (z.B. fist)
     arm_label: str = "fist"
     arm_min_conf: float = 0.60
-    arm_hold_s: float = 0.60  # wie lange fist gehalten werden muss, um ARMED zu werden
+    arm_hold_s: float = 0.30  # wie lange fist gehalten werden muss, um ARMED zu werden
 
     # Action-Gesten
     action_min_conf: float = 0.55
