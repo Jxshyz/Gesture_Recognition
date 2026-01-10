@@ -53,3 +53,6 @@ def ingest_npz_data():
     conn.close()
 
     print(f"[OK] Ingest abgeschlossen. Samples eingefügt: {inserted}")
+
+if __name__ == "__main__":
+    ingest_npz_data()
