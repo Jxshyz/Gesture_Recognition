@@ -20,7 +20,6 @@ class RecordConfig:
     cooldown_s: float = 2.0
 
     window_size: int = 12
-
     samples_per_gesture: int = 10
 
     min_det_conf: float = 0.6
@@ -29,7 +28,7 @@ class RecordConfig:
     out_dir: Path = Path("./data/recordings")
 
 
-# Entfernt: swipe_up, rotate_right, neutral_peace, garbage
+# ❌ Entfernt: swipe_up, rotate_right, neutral_peace, garbage
 GESTURE_ORDER: List[str] = [
     "swipe_left",
     "swipe_right",
@@ -72,16 +71,22 @@ def _pick_hand(results, desired_hand: str) -> Optional[List[Tuple[float, float, 
     return [(p.x, p.y, p.z) for p in hand.landmark]
 
 
-def _draw_ui_box(frame_bgr: np.ndarray, border_bgr: Tuple[int, int, int], title: str, subtitle: str, timer_text: str):
+def _draw_ui_box(
+    frame_bgr: np.ndarray,
+    border_bgr: Tuple[int, int, int],
+    title: str,
+    subtitle: str,
+    timer_text: str,
+):
     x0, y0 = 20, 20
-    w, h = 320, 160
+    w, h = 360, 170
 
     cv2.rectangle(frame_bgr, (x0, y0), (x0 + w, y0 + h), (245, 245, 245), -1)
     cv2.rectangle(frame_bgr, (x0, y0), (x0 + w, y0 + h), border_bgr, 6)
 
-    cv2.putText(frame_bgr, title, (x0 + 14, y0 + 52), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (10, 10, 10), 2, cv2.LINE_AA)
-    cv2.putText(frame_bgr, subtitle, (x0 + 14, y0 + 92), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (30, 30, 30), 2, cv2.LINE_AA)
-    cv2.putText(frame_bgr, timer_text, (x0 + 14, y0 + 132), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (10, 10, 10), 2, cv2.LINE_AA)
+    cv2.putText(frame_bgr, title, (x0 + 14, y0 + 58), cv2.FONT_HERSHEY_SIMPLEX, 0.95, (10, 10, 10), 2, cv2.LINE_AA)
+    cv2.putText(frame_bgr, subtitle, (x0 + 14, y0 + 102), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (30, 30, 30), 2, cv2.LINE_AA)
+    cv2.putText(frame_bgr, timer_text, (x0 + 14, y0 + 144), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (10, 10, 10), 2, cv2.LINE_AA)
 
     cv2.putText(
         frame_bgr,
@@ -110,12 +115,8 @@ def run_record(
     desired_hand = "Right" if str(hand).lower().startswith("r") else "Left"
 
     if gesture_arg == "all":
-        plan = [(g, cfg.samples_per_gesture) for g in GESTURE_ORDER]
+        plan: List[Tuple[str, int]] = [(g, cfg.samples_per_gesture) for g in GESTURE_ORDER]
     else:
-        if gesture_arg not in set(GESTURE_ORDER):
-            raise ValueError(
-                f"Unbekannte Geste '{gesture_arg}'. Erlaubt: {GESTURE_ORDER} (garbage ist entfernt)"
-            )
         plan = [(gesture_arg, cfg.samples_per_gesture)]
 
     cap = cv2.VideoCapture(camera_index)
@@ -134,7 +135,7 @@ def run_record(
     _ensure_dir(out_base)
 
     print("\n============================================================")
-    print("RECORD MODE (NO GARBAGE)")
+    print("RECORD MODE")
     print(f"  user/name:     {name}")
     print(f"  hand:          {desired_hand}")
     print(f"  camera_index:  {camera_index}")
@@ -158,7 +159,7 @@ def run_record(
 
             sample_idx = 0
             while sample_idx < n_samples and not quit_all:
-                # COOLDOWN (red)
+                # COOLDOWN
                 t0 = time.time()
                 while True:
                     now = time.time()
@@ -176,9 +177,9 @@ def run_record(
                     if results.multi_hand_landmarks:
                         mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
 
-                    _draw_ui_box(frame, (0, 0, 255), "COOLDOWN", f"{gesture} ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s")
-
+                    _draw_ui_box(frame, (0, 0, 255), "COOLDOWN", f"{gesture}  ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s")
                     cv2.imshow("Record Data", frame)
+
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("q"):
                         quit_all = True
@@ -193,7 +194,7 @@ def run_record(
                 if quit_all or sample_idx >= n_samples:
                     break
 
-                # RECORDING (green)
+                # RECORDING
                 seq: List[np.ndarray] = []
                 t_start = time.time()
                 next_sample_t = t_start
@@ -212,7 +213,6 @@ def run_record(
 
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results = hands_model.process(rgb)
-
                     if results.multi_hand_landmarks:
                         mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
 
@@ -223,9 +223,9 @@ def run_record(
                             x63 = normalize_landmarks(lm).astype(np.float32, copy=False)
                             seq.append(x63)
 
-                    _draw_ui_box(frame, (0, 255, 0), "RECORDING", f"{gesture} ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s | frames:{len(seq)}")
-
+                    _draw_ui_box(frame, (0, 255, 0), "RECORDING", f"{gesture}  ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s | frames:{len(seq)}")
                     cv2.imshow("Record Data", frame)
+
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("q"):
                         quit_all = True

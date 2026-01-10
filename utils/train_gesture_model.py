@@ -12,13 +12,25 @@ from sklearn.ensemble import GradientBoostingClassifier
 
 from utils.feature_extractor import window_features
 
-DATA_ROOT = Path("./data/recordings")
+DATA_ROOT = Path("./data")
 MODELS = Path("./models")
 MODELS.mkdir(exist_ok=True)
 
 WINDOW_SIZE = 12
 
-# komplett raus aus Training:
+# ✅ trainiere NUR diese Labels
+ALLOWED_LABELS = {
+    "swipe_left",
+    "swipe_right",
+    "swipe_down",      # optional, falls du es nutzt
+    "rotate_left",     # optional, falls du es nutzt
+    "close_fist",
+    "neutral_palm",
+    "finger_pistol",
+    "pinch",
+}
+
+# alles andere wird ignoriert (auch garbage, swipe_up, rotate_right, neutral_peace, ...)
 EXCLUDE_LABELS = {"garbage", "swipe_up", "rotate_right", "neutral_peace"}
 
 
@@ -37,49 +49,75 @@ def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
     return out
 
 
-def load_sequences() -> Tuple[List[np.ndarray], List[str]]:
-    """
-    data/recordings/<name>/<hand>/<gesture>/*.npz
-    """
-    if not DATA_ROOT.exists():
-        raise FileNotFoundError(f"{DATA_ROOT} nicht gefunden.")
+def _load_npz_any(npz_path: Path) -> np.ndarray | None:
+    preferred_keys = ("seq12", "seq", "data", "arr_0")
+    npz = np.load(npz_path, allow_pickle=True)
 
+    arr = None
+    for k in preferred_keys:
+        if k in npz.files:
+            arr = npz[k]
+            break
+    if arr is None and len(npz.files) > 0:
+        arr = npz[npz.files[0]]
+    return arr
+
+
+def load_sequences() -> Tuple[List[np.ndarray], List[str]]:
     seqs: List[np.ndarray] = []
     labels: List[str] = []
 
-    for name_dir in sorted(DATA_ROOT.glob("*")):
-        if not name_dir.is_dir():
-            continue
-        for hand_dir in sorted(name_dir.glob("*")):
-            if not hand_dir.is_dir():
+    if not DATA_ROOT.exists():
+        raise FileNotFoundError(f"{DATA_ROOT} nicht gefunden.")
+
+    search_root = DATA_ROOT / "recordings" if (DATA_ROOT / "recordings").exists() else DATA_ROOT
+    files = list(search_root.rglob("*.npy")) + list(search_root.rglob("*.npz"))
+    if not files:
+        return seqs, labels
+
+    for f in sorted(files):
+        try:
+            gesture_label = f.parent.name
+
+            if gesture_label in EXCLUDE_LABELS:
                 continue
-            for gesture_dir in sorted(hand_dir.glob("*")):
-                if not gesture_dir.is_dir():
+            if gesture_label not in ALLOWED_LABELS:
+                continue
+
+            if f.suffix.lower() == ".npy":
+                arr = np.load(f, allow_pickle=True)
+            else:
+                arr = _load_npz_any(f)
+                if arr is None:
                     continue
 
-                gesture = gesture_dir.name
-                if gesture in EXCLUDE_LABELS:
+            arr = np.asarray(arr, dtype=np.float32)
+
+            # normalize shape: (63,) or (T,63) or (T,21,3)
+            if arr.ndim == 1:
+                if arr.shape[0] != 63:
+                    continue
+                arr = arr.reshape(1, 63)
+
+            elif arr.ndim == 2:
+                if arr.shape[1] != 63:
                     continue
 
-                for npz_file in gesture_dir.glob("*.npz"):
-                    try:
-                        data = np.load(npz_file, allow_pickle=True)
-                    except Exception:
-                        continue
+            elif arr.ndim == 3:
+                if arr.shape[1:] == (21, 3):
+                    arr = arr.reshape(arr.shape[0], 63)
+                else:
+                    continue
+            else:
+                continue
 
-                    if "seq12" in data:
-                        arr = np.asarray(data["seq12"], dtype=np.float32)
-                    elif "seq" in data:
-                        arr = np.asarray(data["seq"], dtype=np.float32)
-                    else:
-                        continue
+            arr = np.nan_to_num(arr, nan=0.0, posinf=1e3, neginf=-1e3)
 
-                    if arr.ndim != 2 or arr.shape[1] != 63:
-                        continue
+            seqs.append(arr)
+            labels.append(gesture_label)
 
-                    arr = np.nan_to_num(arr, nan=0.0, posinf=1e3, neginf=-1e3)
-                    seqs.append(arr)
-                    labels.append(gesture)
+        except Exception:
+            continue
 
     return seqs, labels
 
@@ -91,8 +129,8 @@ def build_windows(seqs: List[np.ndarray], labels: List[str], window_size: int = 
     for seq, lab in zip(seqs, labels):
         T = seq.shape[0]
         if T >= window_size:
-            for start in range(0, T - window_size + 1, 1):
-                win = seq[start:start + window_size]
+            for start in range(0, T - window_size + 1):
+                win = seq[start : start + window_size]
                 feat = window_features(win)
                 X_list.append(feat)
                 y_list.append(lab)
@@ -102,8 +140,11 @@ def build_windows(seqs: List[np.ndarray], labels: List[str], window_size: int = 
             X_list.append(feat)
             y_list.append(lab)
 
+    if not X_list:
+        return np.zeros((0, 189), dtype=np.float32), np.asarray([], dtype=str)
+
     X = np.asarray(X_list, dtype=np.float32)
-    y = np.asarray(y_list)
+    y = np.asarray(y_list, dtype=str)
     return X, y
 
 
@@ -113,11 +154,16 @@ def train_and_save():
     print(f"[INFO] Geladen: {len(seqs)} Sequenzen")
 
     if len(seqs) == 0:
-        raise RuntimeError("Keine Sequenzen gefunden. Check data/recordings/...")
+        print("[ERROR] Keine Samples gefunden. Prüfe ./data/recordings/... und Labels in ALLOWED_LABELS.")
+        return
 
     print("[INFO] Baue Windows (189 Features)...")
     X, y = build_windows(seqs, labels, WINDOW_SIZE)
     print(f"[INFO] Windows: X={X.shape}, y={y.shape}")
+
+    if X.shape[0] == 0:
+        print("[ERROR] Keine Windows erzeugt.")
+        return
 
     counts = Counter(y)
     print("[INFO] Class counts:")
