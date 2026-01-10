@@ -1,9 +1,4 @@
-from ingest_npy_sequences import ingest_npy_data
+from ingest_npz_sequences import ingest_npz_data
 
-ingest_npy_data()
-
-import sqlite3
-from evaluation import evaluate
-
-conn = sqlite3.connect("example.db")
-print(evaluate(conn))
+ingest_npz_data()
+print("Ingest done!")

@@ -1,12 +1,17 @@
 import sqlite3
+from pathlib import Path
 from collections import defaultdict
 
 from similarity import find_similar
 from evaluation import average_precision, precision_at_k
 
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "example.db"
 
-def per_gesture_report(db_path="example.db", k=10):
-    conn = sqlite3.connect(db_path)
+
+def per_gesture_report(k=10):
+    conn = sqlite3.connect(DB_PATH)
+
 
     labels = {
         sid: label

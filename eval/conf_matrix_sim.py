@@ -1,11 +1,15 @@
 import sqlite3
+from pathlib import Path
 from collections import defaultdict
 
 from similarity import find_similar
 
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "example.db"
 
-def confusion_matrix_similarity(db_path="example.db"):
-    conn = sqlite3.connect(db_path)
+
+def confusion_matrix_similarity():
+    conn = sqlite3.connect(DB_PATH)
 
     labels = {
         sid: label

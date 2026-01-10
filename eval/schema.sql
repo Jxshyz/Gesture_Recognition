@@ -1,20 +1,17 @@
-
+-- =========================
+-- Samples (eine Geste = ein Sample)
+-- =========================
 CREATE TABLE IF NOT EXISTS samples (
     sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
     label TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS landmarks (
-    sample_id INTEGER,
-    frame_index INTEGER,
-    landmark_index INTEGER,
-    x REAL,
-    y REAL,
-    z REAL,
-    PRIMARY KEY (sample_id, frame_index, landmark_index)
-);
-
+-- =========================
+-- Embeddings (feste Vektoren pro Sample)
+-- =========================
 CREATE TABLE IF NOT EXISTS embeddings (
     sample_id INTEGER PRIMARY KEY,
-    vector BLOB
+    vector BLOB NOT NULL,
+    FOREIGN KEY (sample_id) REFERENCES samples(sample_id)
+        ON DELETE CASCADE
 );
