@@ -1,89 +1,149 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget
-from PyQt5.QtGui import QPainter, QColor
-from PyQt5.QtCore import Qt, QPoint, QRect
-
 import socket
 import threading
 
+from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtGui import QPainter, QColor
+from PyQt5.QtCore import Qt, QPoint, QRect, pyqtSignal
 
+
+# =========================
+# Resize-Handle Widget
+# =========================
+class ResizeHandle(QWidget):
+    def __init__(self, parent, direction):
+        super().__init__(parent)
+        self.direction = direction
+        self.setMouseTracking(True)
+        self.start_pos = None
+        self.start_geom = None
+
+        if direction in ("left", "right"):
+            self.setCursor(Qt.SizeHorCursor)
+        else:
+            self.setCursor(Qt.SizeVerCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.start_pos = event.globalPos()
+            self.start_geom = self.parent().geometry()
+
+    def mouseMoveEvent(self, event):
+        if self.start_pos is None:
+            return
+
+        delta = event.globalPos() - self.start_pos
+        g = self.start_geom
+
+        x, y, w, h = g.x(), g.y(), g.width(), g.height()
+
+        if self.direction == "right":
+            w += delta.x()
+        elif self.direction == "left":
+            x += delta.x()
+            w -= delta.x()
+        elif self.direction == "bottom":
+            h += delta.y()
+        elif self.direction == "top":
+            y += delta.y()
+            h -= delta.y()
+
+        self.parent().setGeometry(x, y, max(150, w), max(150, h))
+
+    def mouseReleaseEvent(self, event):
+        self.start_pos = None
+
+
+# =========================
+# Overlay Window
+# =========================
 class Overlay(QWidget):
-    BORDER = 6
+    HANDLE_SIZE = 40
+    DRAW_BORDER = 4
+
+    position_received = pyqtSignal(float, float)
 
     def __init__(self):
         super().__init__()
+        print("### OVERLAY STARTED ###")
 
         self.setWindowFlags(
-            Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
-            | Qt.Tool
+            Qt.FramelessWindowHint |
+            Qt.WindowStaysOnTopHint |
+            Qt.Tool
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        self.resize(400, 400)
+        self.resize(360, 740)
 
+        # Punkt
         self.dot_x = 200
         self.dot_y = 200
         self.dot_radius = 5
+        self.last_x = None
+        self.last_y = None
+        
+        # Glättung
+        self.smooth_alpha = 0.275   # 0.15 = sehr ruhig | 0.3 = direkter
+        self.smooth_x = None
+        self.smooth_y = None
 
+
+        # Drag
         self.drag_offset = QPoint()
-        self.resizing = False
-        self.resize_dir = None
-        self.start_geom = QRect()
-        self.start_mouse = QPoint()
-        
-        self.start_udp_listener(port=5005)
 
-        
-    # ----------- LISTENER --------------
-    """
-    def start_udp_listener(self, port=5005):
+        # Resize-Handles
+        self.left_handle = ResizeHandle(self, "left")
+        self.right_handle = ResizeHandle(self, "right")
+        self.top_handle = ResizeHandle(self, "top")
+        self.bottom_handle = ResizeHandle(self, "bottom")
+
+        # Signal
+        self.position_received.connect(self.on_position_received)
+
+        # UDP
+        self.start_udp_listener(5005)
+
+    # =========================
+    # UDP
+    # =========================
+    def start_udp_listener(self, port):
         def listen():
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.bind(("127.0.0.1", port))
-
-            while True:
-                try:
-                    data, _ = sock.recvfrom(1024)
-                    msg = data.decode().strip()
-                    x, y = map(float, msg.split())
-
-                    # 🔁 Koordinaten: 0–1 → Fenster
-                    self.dot_x = x * self.width()
-                    self.dot_y = y * self.height()
-                    self.update()
-                except Exception:
-                    pass
-
-        t = threading.Thread(target=listen, daemon=True)
-        t.start()
-    """
-    
-    def start_udp_listener(self, port=5005):
-        def listen():
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.bind(("127.0.0.1", port))
+            sock.bind(("0.0.0.0", port))
             print(f"[OVERLAY] Listening on UDP {port}")
 
             while True:
-                data, addr = sock.recvfrom(1024)
-                print("[OVERLAY] RAW:", data, "FROM", addr)
-
+                data, _ = sock.recvfrom(1024)
                 try:
-                    msg = data.decode().strip()
-                    x, y = map(float, msg.split())
-                    print("[OVERLAY] PARSED:", x, y)
-
-                    self.dot_x = x * self.width()
-                    self.dot_y = y * self.height()
-                    self.update()
+                    x, y = map(float, data.decode().strip().split())
+                    self.position_received.emit(x, y)
                 except Exception as e:
-                    print("[OVERLAY] ERROR:", e)
+                    print("[OVERLAY] UDP ERROR:", e)
 
         threading.Thread(target=listen, daemon=True).start()
 
+    def on_position_received(self, x, y):
+        target_x = x * self.width()
+        target_y = y * self.height()
 
-    # ---------------- DRAW ----------------
+        # Initialisierung
+        if self.smooth_x is None:
+            self.smooth_x = target_x
+            self.smooth_y = target_y
+        else:
+            a = self.smooth_alpha
+            self.smooth_x = a * target_x + (1 - a) * self.smooth_x
+            self.smooth_y = a * target_y + (1 - a) * self.smooth_y
+
+        self.dot_x = self.smooth_x
+        self.dot_y = self.smooth_y
+        self.update()
+
+
+    # =========================
+    # Paint
+    # =========================
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -91,7 +151,8 @@ class Overlay(QWidget):
         # Rahmen
         painter.setPen(QColor(0, 255, 0))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(1, 1, self.width() - 2, self.height() - 2)
+        b = self.DRAW_BORDER
+        painter.drawRect(b, b, self.width() - 2*b, self.height() - 2*b)
 
         # Punkt
         painter.setBrush(QColor(255, 0, 0))
@@ -103,90 +164,42 @@ class Overlay(QWidget):
             self.dot_radius * 2
         )
 
-    # ---------------- HIT TEST ----------------
-    def hit_test(self, pos):
-        x, y = pos.x(), pos.y()
+    # =========================
+    # Resize-Handles Layout
+    # =========================
+    def resizeEvent(self, event):
+        s = self.HANDLE_SIZE
         w, h = self.width(), self.height()
-        b = self.BORDER
 
-        left   = x < b
-        right  = x > w - b
-        top    = y < b
-        bottom = y > h - b
+        self.left_handle.setGeometry(0, s, s, h - 2*s)
+        self.right_handle.setGeometry(w - s, s, s, h - 2*s)
+        self.top_handle.setGeometry(s, 0, w - 2*s, s)
+        self.bottom_handle.setGeometry(s, h - s, w - 2*s, s)
 
-        if top and left: return "tl"
-        if top and right: return "tr"
-        if bottom and left: return "bl"
-        if bottom and right: return "br"
-        if left: return "l"
-        if right: return "r"
-        if top: return "t"
-        if bottom: return "b"
-        return None
+        super().resizeEvent(event)
 
-    # ---------------- MOUSE ----------------
+    # =========================
+    # Move Window
+    # =========================
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.resize_dir = self.hit_test(event.pos())
-            self.start_geom = self.geometry()
-            self.start_mouse = event.globalPos()
-
-            if self.resize_dir:
-                self.resizing = True
-            else:
-                self.drag_offset = event.globalPos() - self.frameGeometry().topLeft()
+            self.drag_offset = event.globalPos() - self.frameGeometry().topLeft()
 
     def mouseMoveEvent(self, event):
-        if self.resizing:
-            delta = event.globalPos() - self.start_mouse
-            g = self.start_geom
-
-            x, y, w, h = g.x(), g.y(), g.width(), g.height()
-
-            if "r" in self.resize_dir:
-                w += delta.x()
-            if "l" in self.resize_dir:
-                x += delta.x()
-                w -= delta.x()
-            if "b" in self.resize_dir:
-                h += delta.y()
-            if "t" in self.resize_dir:
-                y += delta.y()
-                h -= delta.y()
-
-            self.setGeometry(x, y, max(100, w), max(100, h))
-
-        elif event.buttons() == Qt.LeftButton:
+        if event.buttons() == Qt.LeftButton:
             self.move(event.globalPos() - self.drag_offset)
 
-        # Cursor ändern
-        dir = self.hit_test(event.pos())
-        cursors = {
-            "l": Qt.SizeHorCursor,
-            "r": Qt.SizeHorCursor,
-            "t": Qt.SizeVerCursor,
-            "b": Qt.SizeVerCursor,
-            "tl": Qt.SizeFDiagCursor,
-            "br": Qt.SizeFDiagCursor,
-            "tr": Qt.SizeBDiagCursor,
-            "bl": Qt.SizeBDiagCursor,
-        }
-        self.setCursor(cursors.get(dir, Qt.ArrowCursor))
-
-    def mouseReleaseEvent(self, event):
-        self.resizing = False
-        self.resize_dir = None
-
-    # Punkt per Doppelklick verschieben
     def mouseDoubleClickEvent(self, event):
         self.dot_x = event.x()
         self.dot_y = event.y()
         self.update()
 
 
+# =========================
+# Main
+# =========================
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     overlay = Overlay()
     overlay.show()
     sys.exit(app.exec_())
-
