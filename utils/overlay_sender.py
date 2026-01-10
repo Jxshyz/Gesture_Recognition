@@ -61,9 +61,9 @@ while True:
         cv2.circle(frame, (cx, cy), 8, (0, 0, 255), -1)
 
     # Debug optional
-        cv2.imshow("Finger Sender", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+    cv2.imshow("Finger Sender", frame)
+    if cv2.waitKey(1) & 0xFF == ord("q"):
+        break
 
 cap.release()
 cv2.destroyAllWindows()
