@@ -9,15 +9,11 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
-from feature_extractor import normalize_landmarks, window_features
-from model_io import load_model_and_encoder, predict_feat189, decode_label
-from prediction_utils import PredictionAggregator
-from phone_controller import AndroidDevice
+from utils.feature_extractor import normalize_landmarks, window_features
+from utils.model_io import load_model_and_encoder, predict_feat189, decode_label
+from utils.prediction_utils import PredictionAggregator
+from utils.phone_controller import AndroidDevice
 
-from overlay_sender import OverlaySender
-
-# initialize sender
-overlay = OverlaySender()
 
 # Android keycodes (DPAD + ENTER)
 KEYCODE_DPAD_LEFT = 21
@@ -297,13 +293,7 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
             lm = _extract_lm(results)
             if results.multi_hand_landmarks:
-                hand = results.multi_hand_landmarks[0]  # z. B. erste Hand
-
-                lm = hand.landmark[8]   # Index-Finger-Spitze
-                x = lm.x                # 0..1
-                y = lm.y                # 0..1
-
-                overlay.send(x, y)
+                mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
 
             x63 = None
             if lm is not None:
