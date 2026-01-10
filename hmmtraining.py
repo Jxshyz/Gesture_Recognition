@@ -7,7 +7,6 @@ from hmmlearn import hmm
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
-
 # --------------------------------------------------
 # Paths
 # --------------------------------------------------
@@ -115,11 +114,25 @@ if __name__ == "__main__":
     models, scaler = train_hmms(X_train, y_train, n_states=5, n_iter=20)
 
     # evaluation
-    correct = 0
-    for seq, lbl in zip(X_test, y_test):
-        pred = predict(seq, models, scaler)
-        if pred == lbl:
-            correct += 1
+    from collections import defaultdict
 
-    acc = correct / len(y_test)
-    print(f"\nHMM Test Accuracy: {acc:.2%}")
+    per_gesture_total = defaultdict(int)
+    per_gesture_correct = defaultdict(int)
+
+    for seq, true_label in zip(X_test, y_test):
+        pred = predict(seq, models, scaler)
+        per_gesture_total[true_label] += 1
+        if pred == true_label:
+            per_gesture_correct[true_label] += 1
+
+    print("\nPer-Gesture Test Accuracy")
+    print("=" * 35)
+
+    for gesture in sorted(per_gesture_total.keys()):
+        total = per_gesture_total[gesture]
+        correct = per_gesture_correct[gesture]
+        acc = correct / total
+        print(f"{gesture:15s}: {acc:.2%}  ({correct}/{total})")
+
+    overall_acc = sum(per_gesture_correct.values()) / sum(per_gesture_total.values())
+    print("\nOverall Test Accuracy:", f"{overall_acc:.2%}")
