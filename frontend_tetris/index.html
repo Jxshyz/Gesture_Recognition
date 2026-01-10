@@ -20,7 +20,7 @@
     }
 
     /* ---------------------------------------------------
-       LEFT PANEL (Mode + History)
+       LEFT PANEL
        --------------------------------------------------- */
     .left-panel {
       flex: 0 0 280px;
@@ -94,9 +94,6 @@
       margin-top:4px;
     }
 
-    /* ---------------------------------------------------
-       GESTENPANEL (old) – now integrated in left panel
-       --------------------------------------------------- */
     .gesture-box {
       width:100%;
       border-radius:12px;
@@ -136,13 +133,63 @@
     }
 
     .game-title {
-      margin-bottom:12px;
+      margin-bottom:10px;
       font-size:1.5rem;
       font-weight:600;
       letter-spacing:0.05em;
       text-transform:uppercase;
       color:#e5e7eb;
       text-align:center;
+    }
+
+    /* NEW: Arming Progress */
+    .arming-wrap {
+      width: 360px; /* muss zu canvas width passen */
+      margin-bottom: 12px;
+      border-radius: 14px;
+      border: 1px solid #1f2937;
+      background: #030712;
+      padding: 10px 12px;
+      box-shadow:0 12px 30px rgba(15,23,42,0.55);
+    }
+
+    .arming-top {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+      color:#cbd5e1;
+    }
+
+    .arming-top .hint {
+      color:#9ca3af;
+      font-size: 0.78rem;
+    }
+
+    .arming-bar {
+      width:100%;
+      height: 14px;
+      border-radius: 999px;
+      background: #0b1220;
+      border: 1px solid #1f2937;
+      overflow:hidden;
+    }
+
+    .arming-fill {
+      height: 100%;
+      width: 0%;
+      background: #e5e7eb; /* weiß */
+      border-radius: 999px;
+      transition: width 80ms linear;
+    }
+
+    .arming-sub {
+      margin-top: 8px;
+      display:flex;
+      justify-content:space-between;
+      font-size: 0.78rem;
+      color:#9ca3af;
     }
 
     canvas {
@@ -153,7 +200,7 @@
     }
 
     /* ---------------------------------------------------
-       RIGHT PANEL (unchanged)
+       RIGHT PANEL
        --------------------------------------------------- */
     .panel {
       flex: 0 0 360px;
@@ -264,6 +311,22 @@
     <!-- TETRIS MITTE -->
     <div class="game-wrapper">
       <div class="game-title">GESTURE TETRIS</div>
+
+      <!-- NEW: Arming Progress Bar (neutral_palm hold) -->
+      <div class="arming-wrap">
+        <div class="arming-top">
+          <div><strong>Scharfschalten</strong> <span class="hint">(neutral_palm halten)</span></div>
+          <div id="armingPct">0%</div>
+        </div>
+        <div class="arming-bar">
+          <div id="armingFill" class="arming-fill"></div>
+        </div>
+        <div class="arming-sub">
+          <div id="armingState">Warten…</div>
+          <div id="armingHint">Ziel: 0.5s</div>
+        </div>
+      </div>
+
       <canvas id="board" width="360" height="720"></canvas>
     </div>
 
@@ -325,6 +388,10 @@
     const liveTimerEl = document.getElementById("liveTimer");
     const histList = document.getElementById("histList");
 
+    const armingFill = document.getElementById("armingFill");
+    const armingPct = document.getElementById("armingPct");
+    const armingState = document.getElementById("armingState");
+
     const cameraImg = document.getElementById("cameraFeed");
 
     /* =========================================================
@@ -334,7 +401,7 @@
     cameraImg.onload = () => { cameraReady = true; };
 
     /* =========================================================
-       GESTEN-BOX (old)
+       GESTEN-BOX (Game input)
        ========================================================= */
     const WINDOW_DURATION = 2.0;
     let countdownTimer = null;
@@ -375,18 +442,33 @@
     /* =========================================================
        TELEMETRY UI
        ========================================================= */
-    function fmtPct(x) {
+    function fmtPct01(x) {
       const p = Math.max(0, Math.min(1, Number(x))) * 100;
       return p.toFixed(1) + "%";
     }
 
     function setTelemetry(cur) {
       if (!cur) return;
+
       const st = (cur.state || "idle").toUpperCase();
       modePill.textContent = st;
       liveLabelEl.textContent = cur.label ?? "-";
-      liveConfEl.textContent = fmtPct(cur.conf ?? 0);
+      liveConfEl.textContent = fmtPct01(cur.conf ?? 0);
       liveTimerEl.textContent = (cur.seconds_left ?? 0).toFixed(2) + "s";
+
+      // NEW: progress bar
+      const prog = Math.max(0, Math.min(1, Number(cur.armed_progress ?? 0)));
+      armingFill.style.width = (prog * 100) + "%";
+      armingPct.textContent = Math.round(prog * 100) + "%";
+
+      const ready = Boolean(cur.armed_ready);
+      if (ready) {
+        armingState.textContent = "✅ bereit (nächste Geste wird erwartet)";
+      } else if (prog > 0) {
+        armingState.textContent = "… hält neutral_palm";
+      } else {
+        armingState.textContent = "Warten…";
+      }
     }
 
     function renderHistory(history) {
@@ -398,7 +480,7 @@
         li.innerHTML = `
           <div class="hist-top">
             <span>${e.label}</span>
-            <span>${fmtPct(e.conf)}</span>
+            <span>${fmtPct01(e.conf)}</span>
           </div>
           <div class="hist-sub">
             <span>${String(e.state || "").toUpperCase()}</span>
@@ -419,7 +501,6 @@
       } catch {}
     }
 
-    // fallback polling (wenn WS telemetry aus irgendeinem Grund fehlt)
     setInterval(pollTelemetry, 350);
     pollTelemetry();
 
@@ -611,7 +692,6 @@
 
             updateGestureBox(gestureName, phase);
 
-            // Wenn seconds_left mitkommt, nutze es für Countdown, sonst fallback.
             const secs = (msg.params && typeof msg.params.seconds_left === "number") ? msg.params.seconds_left : undefined;
             startCountdown(secs);
 

@@ -1,3 +1,6 @@
 # Rohdaten der Gestenaufnahme
 data_raw/
 data_raw/*
+
+#macOS File
+.DS_Store

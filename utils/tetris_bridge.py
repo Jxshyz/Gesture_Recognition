@@ -1,50 +1,57 @@
+# utils/tetris_bridge.py
+from __future__ import annotations
+
 import requests
 
 TETRIS_GESTURE_URL = "http://127.0.0.1:8000/gesture"
 TETRIS_TELEMETRY_URL = "http://127.0.0.1:8000/api/telemetry"
 
+# Labels aus deinem Modell -> Events für die Webapp
 LABEL_TO_GESTURE = {
-    "Links wischen": "swipe_left",
-    "Rechts wischen": "swipe_right",
-    "hand links drehen": "rotate",
-    "hand rechts drehen": "rotate",
-    "faust schließen": "fist",
-    "nach oben wischen": None,
-    "nach unten wischen": None,
-    "NO_GESTURE": None,
-    "garbage": None,
+    "swipe_left": "swipe_left",
+    "swipe_right": "swipe_right",
+    "rotate": "rotate",
+    "fist": "fist",
+    # NICHT ans Spiel senden:
     "neutral_palm": None,
     "neutral_peace": None,
+    "garbage": None,
 }
 
 
-def _push_telemetry(state_str: str, label: str, conf: float, seconds_left: float, push_history: bool):
+def send_telemetry_only(
+    state: str,
+    label: str,
+    conf: float,
+    seconds_left: float,
+    armed_progress: float,
+    armed_ready: bool,
+    push_history: bool = False,
+):
+    """
+    UI/Telemetry Updates (Progressbar, Status, Live Label).
+    Default: push_history=False, damit History nicht vollgemüllt wird.
+    """
+    payload = {
+        "state": str(state),
+        "label": str(label),
+        "conf": float(conf),
+        "seconds_left": float(seconds_left),
+        "armed_progress": float(armed_progress),
+        "armed_ready": bool(armed_ready),
+        "push_history": bool(push_history),
+    }
+
     try:
-        requests.post(
-            TETRIS_TELEMETRY_URL,
-            json={
-                "state": state_str,
-                "label": label,
-                "conf": float(conf),
-                "seconds_left": float(seconds_left),
-                "push_history": bool(push_history),
-            },
-            timeout=0.15,
-        )
+        requests.post(TETRIS_TELEMETRY_URL, json=payload, timeout=0.2)
     except Exception:
         pass
 
 
 def send_gesture_to_tetris(label: str, conf: float, phase_color: str, seconds_left: float):
     """
-    Wird in main.py/run_live (Tetris mode) bei on_prediction aufgerufen.
-    Wir verwenden:
-      - gesture event (für Spielsteuerung)
-      - telemetry event (für UI: mode + history)
+    Wird bei COMMIT aufgerufen -> steuert das Spiel.
     """
-    # Telemetry immer aktualisieren (History: ja, weil committed)
-    _push_telemetry(phase_color, label, conf, seconds_left, push_history=True)
-
     gesture = LABEL_TO_GESTURE.get(label)
     if gesture is None:
         return
@@ -53,13 +60,13 @@ def send_gesture_to_tetris(label: str, conf: float, phase_color: str, seconds_le
         "gesture": gesture,
         "confidence": float(conf),
         "params": {
-            "phase_color": phase_color,
+            "phase_color": str(phase_color),
             "seconds_left": float(seconds_left),
-            "raw_label": label,
+            "raw_label": str(label),
         },
     }
 
     try:
-        requests.post(TETRIS_GESTURE_URL, json=payload, timeout=0.15)
+        requests.post(TETRIS_GESTURE_URL, json=payload, timeout=0.2)
     except Exception:
         pass
