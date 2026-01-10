@@ -12,11 +12,18 @@ from sklearn.ensemble import GradientBoostingClassifier
 
 from utils.feature_extractor import window_features
 
+# Optional: tqdm Fortschrittsbalken
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover
+    tqdm = None
+
 DATA_ROOT = Path("./data")
 MODELS = Path("./models")
 MODELS.mkdir(exist_ok=True)
 
 WINDOW_SIZE = 12
+N_ESTIMATORS = 350  # <- hier steuerst du die Trainingsdauer
 
 # ✅ trainiere NUR diese Labels
 ALLOWED_LABELS = {
@@ -122,7 +129,11 @@ def load_sequences() -> Tuple[List[np.ndarray], List[str]]:
     return seqs, labels
 
 
-def build_windows(seqs: List[np.ndarray], labels: List[str], window_size: int = WINDOW_SIZE) -> Tuple[np.ndarray, np.ndarray]:
+def build_windows(
+    seqs: List[np.ndarray],
+    labels: List[str],
+    window_size: int = WINDOW_SIZE
+) -> Tuple[np.ndarray, np.ndarray]:
     X_list: List[np.ndarray] = []
     y_list: List[str] = []
 
@@ -146,6 +157,41 @@ def build_windows(seqs: List[np.ndarray], labels: List[str], window_size: int = 
     X = np.asarray(X_list, dtype=np.float32)
     y = np.asarray(y_list, dtype=str)
     return X, y
+
+
+def _fit_gb_with_tqdm(
+    X: np.ndarray,
+    y_enc: np.ndarray,
+    n_estimators: int = N_ESTIMATORS,
+    random_state: int = 42
+) -> GradientBoostingClassifier:
+    """
+    Trainiert GradientBoostingClassifier inkrementell (warm_start),
+    damit tqdm eine ETA/Restzeit anzeigen kann.
+    """
+    if tqdm is None:
+        print("[WARN] tqdm ist nicht installiert. Installiere mit: pip install tqdm")
+        print("[INFO] Trainiere ohne Progressbar...")
+        model = GradientBoostingClassifier(n_estimators=n_estimators, random_state=random_state)
+        model.fit(X, y_enc)
+        return model
+
+    model = GradientBoostingClassifier(
+        n_estimators=1,      # Startwert, wird im Loop hochgezählt
+        warm_start=True,
+        random_state=random_state
+    )
+
+    pbar = tqdm(total=n_estimators, desc="Training (GradientBoosting)", unit="tree")
+
+    # Jede Iteration fügt genau einen weiteren Baum hinzu (warm_start)
+    for i in range(1, n_estimators + 1):
+        model.set_params(n_estimators=i)
+        model.fit(X, y_enc)
+        pbar.update(1)
+
+    pbar.close()
+    return model
 
 
 def train_and_save():
@@ -175,8 +221,7 @@ def train_and_save():
     y_enc = le.fit_transform(y)
 
     print("[INFO] Trainiere GradientBoostingClassifier...")
-    model = GradientBoostingClassifier(n_estimators=350, random_state=42)
-    model.fit(X, y_enc)
+    model = _fit_gb_with_tqdm(X, y_enc, n_estimators=N_ESTIMATORS, random_state=42)
 
     joblib.dump(model, MODELS / "gesture_model.joblib")
     joblib.dump(le, MODELS / "label_encoder.joblib")

@@ -7,15 +7,27 @@ TETRIS_GESTURE_URL = "http://127.0.0.1:8000/gesture"
 TETRIS_TELEMETRY_URL = "http://127.0.0.1:8000/api/telemetry"
 
 # Labels aus deinem Modell -> Events für die Webapp
+# (Wir senden bewusst "rotate_left" und "close_fist", damit es eindeutig ist.)
 LABEL_TO_GESTURE = {
+    # Gewünschte Steuerung
     "swipe_left": "swipe_left",
     "swipe_right": "swipe_right",
-    "rotate": "rotate",
-    "fist": "fist",
+    "rotate_left": "rotate_left",
+    "close_fist": "close_fist",
+
+    # Optional: Rückwärts-Kompatibilität, falls dein altes Modell noch so heißt
+    "rotate": "rotate_left",
+    "fist": "close_fist",
+
     # NICHT ans Spiel senden:
     "neutral_palm": None,
     "neutral_peace": None,
     "garbage": None,
+    "pinch": None,
+    "finger_pistol": None,
+    "swipe_up": None,
+    "swipe_down": None,
+    "rotate_right": None,
 }
 
 
@@ -52,7 +64,7 @@ def send_gesture_to_tetris(label: str, conf: float, phase_color: str, seconds_le
     """
     Wird bei COMMIT aufgerufen -> steuert das Spiel.
     """
-    gesture = LABEL_TO_GESTURE.get(label)
+    gesture = LABEL_TO_GESTURE.get((label or "").lower())
     if gesture is None:
         return
 

@@ -76,3 +76,17 @@
   border-radius: 14px;
   border: 1px solid rgba(0,0,0,0.12);
 }
+
+/* Fill der Progressbar: Standard */
+#armingFill {
+  height: 100%;
+  width: 0%;
+  background: rgba(0,0,0,0.35);
+  border-radius: 999px;
+  transition: width 0.08s linear, background 0.12s linear;
+}
+
+/* ✅ Wenn ready: grün */
+#armingFill.armed-ready {
+  background: #00c853;
+}

@@ -131,8 +131,8 @@ class GestureEvent(BaseModel):
 GESTURE_TO_ACTION = {
     "swipe_left": "left",
     "swipe_right": "right",
-    "rotate": "rotate",
-    "fist": "hardDrop",
+    "rotate_left": "rotate",
+    "close_fist": "hardDrop",
 }
 
 
