@@ -80,6 +80,14 @@ class Overlay(QWidget):
         self.dot_x = 200
         self.dot_y = 200
         self.dot_radius = 5
+        self.last_x = None
+        self.last_y = None
+        
+        # Glättung
+        self.smooth_alpha = 0.275   # 0.15 = sehr ruhig | 0.3 = direkter
+        self.smooth_x = None
+        self.smooth_y = None
+
 
         # Drag
         self.drag_offset = QPoint()
@@ -116,9 +124,22 @@ class Overlay(QWidget):
         threading.Thread(target=listen, daemon=True).start()
 
     def on_position_received(self, x, y):
-        self.dot_x = x * self.width()
-        self.dot_y = y * self.height()
+        target_x = x * self.width()
+        target_y = y * self.height()
+
+        # Initialisierung
+        if self.smooth_x is None:
+            self.smooth_x = target_x
+            self.smooth_y = target_y
+        else:
+            a = self.smooth_alpha
+            self.smooth_x = a * target_x + (1 - a) * self.smooth_x
+            self.smooth_y = a * target_y + (1 - a) * self.smooth_y
+
+        self.dot_x = self.smooth_x
+        self.dot_y = self.smooth_y
         self.update()
+
 
     # =========================
     # Paint
