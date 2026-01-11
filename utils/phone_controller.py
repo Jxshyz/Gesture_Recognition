@@ -17,13 +17,11 @@ def _run(cmd: List[str], timeout: float = 8.0) -> Tuple[int, str]:
 
 
 def _find_adb() -> str:
-    # 1) explicit env
     for k in ("ADB_PATH", "ADB"):
         v = os.environ.get(k)
         if v and Path(v).exists():
             return v
 
-    # 2) Android SDK env
     for k in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
         root = os.environ.get(k)
         if root:
@@ -31,38 +29,26 @@ def _find_adb() -> str:
             if cand.exists():
                 return str(cand)
 
-    # 3) common Windows default
     if os.name == "nt":
         cand = Path.home() / "AppData" / "Local" / "Android" / "Sdk" / "platform-tools" / "adb.exe"
         if cand.exists():
             return str(cand)
 
-    # 4) fallback: assume in PATH
     return "adb"
 
 
 @dataclass
 class AndroidDevice:
-    """
-    ADB-basierte Steuerung + optional uiautomator2 für kohärente Touch DOWN/MOVE/UP.
-
-    - keyevent / tap / swipe: per adb input
-    - touch_down/move/up: per uiautomator2 (damit Drag wirklich hält)
-    - input_w/input_h: effektiver Koordinatenraum (berücksichtigt Rotation)
-    """
     adb_path: str
     serial: str
 
-    # effective input coordinate system size (changes with rotation)
     input_w: int
     input_h: int
     rotation: int  # 0,1,2,3
 
-    # physical size (optional)
     phys_w: int
     phys_h: int
 
-    # uiautomator2 device (optional)
     u2: Any = field(default=None, repr=False)
 
     @property
@@ -78,7 +64,6 @@ class AndroidDevice:
     ) -> "AndroidDevice":
         adb = adb_path or _find_adb()
 
-        # list devices
         rc, out = _run([adb, "devices"])
         if rc != 0:
             raise RuntimeError(f"adb devices failed:\n{out}")
@@ -96,7 +81,6 @@ class AndroidDevice:
             raise RuntimeError("Kein Android device gefunden (adb devices ist leer).")
 
         if serial is None:
-            # pick first usable
             for s, st in devs:
                 if st == "device":
                     serial = s
@@ -109,15 +93,13 @@ class AndroidDevice:
 
         if enable_u2:
             try:
-                import uiautomator2 as u2  # pip install -U uiautomator2
+                import uiautomator2 as u2
                 dev.u2 = u2.connect(serial)
-                # kleiner Ping, damit man Fehler früh sieht
                 _ = dev.u2.info
             except Exception as e:
                 dev.u2 = None
                 raise RuntimeError(
-                    "uiautomator2 konnte nicht verbinden. "
-                    "Prüfe USB-Debugging + 'adb devices' und ob uiautomator2 installiert ist.\n"
+                    "uiautomator2 konnte nicht verbinden. Prüfe USB-Debugging + 'adb devices'.\n"
                     f"Original error: {e}"
                 ) from e
 
@@ -133,7 +115,7 @@ class AndroidDevice:
         return out
 
     # ----------------------------
-    # Basic actions (ADB input)
+    # Basic actions (ADB)
     # ----------------------------
     def keyevent(self, keycode: int) -> None:
         self.shell("input", "keyevent", str(keycode))
@@ -155,18 +137,41 @@ class AndroidDevice:
     # ----------------------------
     def touch_down(self, x: int, y: int) -> None:
         if not self.u2:
-            raise RuntimeError("touch_down benötigt uiautomator2 (AndroidDevice.connect(enable_u2=True)).")
+            raise RuntimeError("touch_down benötigt uiautomator2 (connect(enable_u2=True)).")
         self.u2.touch.down(int(x), int(y))
 
     def touch_move(self, x: int, y: int) -> None:
         if not self.u2:
-            raise RuntimeError("touch_move benötigt uiautomator2 (AndroidDevice.connect(enable_u2=True)).")
+            raise RuntimeError("touch_move benötigt uiautomator2 (connect(enable_u2=True)).")
         self.u2.touch.move(int(x), int(y))
 
     def touch_up(self, x: int, y: int) -> None:
         if not self.u2:
-            raise RuntimeError("touch_up benötigt uiautomator2 (AndroidDevice.connect(enable_u2=True)).")
+            raise RuntimeError("touch_up benötigt uiautomator2 (connect(enable_u2=True)).")
         self.u2.touch.up(int(x), int(y))
+
+    # ✅ NEW: echter Drag (DOWN -> MOVE ... -> UP)
+    def drag(self, x1: int, y1: int, x2: int, y2: int, duration_s: float = 0.22, steps: int = 12) -> None:
+        """
+        Simuliert einen "Finger bleibt gedrückt" Drag.
+        - Mit uiautomator2: DOWN/MOVE/UP (kohärent)
+        - Fallback: adb input swipe (funktioniert meist, ist aber nicht immer 100% 'hold')
+        """
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        steps = max(2, int(steps))
+        duration_s = max(0.02, float(duration_s))
+
+        if self.u2:
+            self.touch_down(x1, y1)
+            for i in range(1, steps):
+                t = i / (steps - 1)
+                xi = int(x1 + (x2 - x1) * t)
+                yi = int(y1 + (y2 - y1) * t)
+                self.touch_move(xi, yi)
+                time.sleep(duration_s / steps)
+            self.touch_up(x2, y2)
+        else:
+            self.swipe(x1, y1, x2, y2, duration_ms=int(duration_s * 1000))
 
     # ----------------------------
     # Display info
@@ -178,7 +183,6 @@ class AndroidDevice:
             return
         self._last_disp_refresh = now
 
-        # physical size
         phys_w, phys_h = self.phys_w, self.phys_h
         try:
             out = self.shell("wm", "size")
@@ -188,7 +192,6 @@ class AndroidDevice:
         except Exception:
             pass
 
-        # rotation
         rot = self.rotation
         try:
             out = self.shell("dumpsys", "input")
