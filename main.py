@@ -1,8 +1,9 @@
-# main.py (komplette Datei – nur phone_live Block erweitert)
+# main.py (komplette Datei)
 import sys
 import webbrowser
 from pathlib import Path
 import time
+from urllib.parse import quote
 
 from utils.cam_test import run_test_cam
 from utils.record_data import run_record
@@ -66,6 +67,7 @@ def main():
     # -------------------------------------------------------------------------
     elif cmd == "train_model":
         from utils.train_gesture_model import train_and_save
+
         train_and_save()
         return
 
@@ -74,6 +76,7 @@ def main():
     # -------------------------------------------------------------------------
     elif cmd == "debug":
         from utils.debug_runner import run_debug
+
         cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
         run_debug(camera_index=cam_idx)
         return
@@ -99,8 +102,8 @@ def main():
                     camera_index=cam_idx,
                     port=8010,
                     pred_min_interval_s=0.06,
-                    arm_hold_s=0.60,
-                    cooldown_s=0.50,
+                    arm_hold_s=0.30,
+                    cooldown_s=0.20,
                 )
             )
             return
@@ -120,11 +123,20 @@ def main():
             )
             return
 
+        # ----------------------------
+        # TETRIS MODE: ask username
+        # ----------------------------
+        user_name = ""
+        while not user_name:
+            user_name = input("Choose your name: ").strip()
+
         from utils.tetris_app import start_tetris_server_background
         from utils.tetris_bridge import send_gesture_to_tetris, send_telemetry_only
 
         start_tetris_server_background()
-        webbrowser.open(f"http://127.0.0.1:8000/?v={int(time.time())}")
+
+        user_q = quote(user_name)
+        webbrowser.open(f"http://127.0.0.1:8000/?user={user_q}&v={int(time.time())}")
 
         def on_prediction(label, conf, frame_bgr, state_str, seconds_left):
             send_gesture_to_tetris(label, conf, state_str, seconds_left)
@@ -207,7 +219,6 @@ def main():
 
         cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
 
-        # Overlay starten (sichtbar + mit Logs)
         overlay_proc = subprocess.Popen(
             [sys.executable, "-u", "utils/overlay.py", "--udp", "5005"],
         )
@@ -228,6 +239,7 @@ def main():
     # -------------------------------------------------------------------------
     elif cmd == "-tetris":
         from utils.tetris_app import run_tetris_server
+
         run_tetris_server()
         return
 

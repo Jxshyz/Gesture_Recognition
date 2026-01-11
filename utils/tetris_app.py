@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import threading
+import time
 from typing import Dict, Any, Set
 
 from fastapi import FastAPI, WebSocket
@@ -12,6 +13,7 @@ import uvicorn
 
 from .gesture_stream import get_latest_frame
 from .telemetry_store import TELEMETRY
+from .highscore_store import HighscoreStore
 
 app = FastAPI(title="Gesture Tetris")
 
@@ -19,7 +21,12 @@ FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend_tetris")
 FRONTEND_DIR = os.path.abspath(FRONTEND_DIR)
 os.makedirs(FRONTEND_DIR, exist_ok=True)
 
-# Optional: falls du static assets hast
+# Highscore folder in project root: ./Highscore_Tetris
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+HIGHSCORE_DIR = os.path.join(PROJECT_ROOT, "Highscore_Tetris")
+highscores = HighscoreStore(root_dir=os.path.abspath(HIGHSCORE_DIR))
+
+# static assets
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
@@ -47,10 +54,11 @@ class ConnectionManager:
 
     async def broadcast(self, message: Dict[str, Any]):
         dead = []
+        msg_txt = json.dumps(message)
         async with self.lock:
             for conn in self.active_connections:
                 try:
-                    await conn.send_text(json.dumps(message))
+                    await conn.send_text(msg_txt)
                 except Exception:
                     dead.append(conn)
             for d in dead:
@@ -76,8 +84,7 @@ async def debug_index_path():
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """
-    WICHTIG: Wir lesen die index.html bei JEDEM Request neu ein,
-    damit du Änderungen sofort siehst und NICHT aus Cache.
+    index.html bei JEDEM Request neu laden (kein Cache)
     """
     index_path = os.path.join(FRONTEND_DIR, "index.html")
     if not os.path.exists(index_path):
@@ -96,6 +103,14 @@ async def index():
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
+
+    # Direkt initial push: Telemetry + Highscores
+    try:
+        await ws.send_text(json.dumps({"type": "telemetry", "data": TELEMETRY.snapshot()}))
+        await ws.send_text(json.dumps({"type": "highscores", "items": highscores.list_highscores()}))
+    except Exception:
+        pass
+
     try:
         while True:
             # keep-alive
@@ -179,6 +194,60 @@ async def post_telemetry(t: TelemetryIn):
 @app.get("/api/telemetry")
 async def get_telemetry():
     return JSONResponse(TELEMETRY.snapshot(), headers=_no_cache_headers())
+
+
+# ----------------------------------------------------------------------
+# HIGHSCORES
+# ----------------------------------------------------------------------
+class HighscoreSubmit(BaseModel):
+    name: str
+    score: int
+
+
+@app.get("/api/highscores")
+async def get_highscores():
+    return JSONResponse({"items": highscores.list_highscores()}, headers=_no_cache_headers())
+
+
+@app.post("/api/highscores/submit")
+async def submit_highscore(payload: HighscoreSubmit):
+    name = (payload.name or "").strip()
+    score = int(payload.score or 0)
+
+    if not name:
+        return JSONResponse({"ok": False, "error": "name required"}, status_code=400, headers=_no_cache_headers())
+    if score < 0:
+        score = 0
+
+    updated, best = highscores.update_best(name, score)
+    items = highscores.list_highscores()
+
+    # push update to all clients
+    await manager.broadcast({"type": "highscores", "items": items})
+
+    return JSONResponse(
+        {"ok": True, "updated": updated, "best": best, "items": items},
+        headers=_no_cache_headers(),
+    )
+
+
+# ----------------------------------------------------------------------
+# QUIT (X im Browser) -> Python Prozess beenden
+# ----------------------------------------------------------------------
+@app.post("/api/quit")
+async def api_quit():
+    """
+    Beendet den kompletten Prozess (Server + run_live).
+    Wir starten einen Thread, warten kurz, dann os._exit(0),
+    damit die HTTP-Response noch rausgeht.
+    """
+
+    def _killer():
+        time.sleep(0.25)
+        os._exit(0)
+
+    threading.Thread(target=_killer, daemon=True).start()
+    return JSONResponse({"ok": True}, headers=_no_cache_headers())
 
 
 def run_tetris_server(host="127.0.0.1", port=8000):
