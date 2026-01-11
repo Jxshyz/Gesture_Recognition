@@ -5,9 +5,10 @@ from __future__ import annotations
 # QUIET LOGS (MUST be before importing mediapipe / tf stuff)
 # ------------------------------------------------------------
 import os
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")   # quiet TF
-os.environ.setdefault("GLOG_minloglevel", "2")       # quiet glog (mediapipe)
-os.environ.setdefault("ABSL_MIN_LOG_LEVEL", "2")     # quiet absl
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # quiet TF
+os.environ.setdefault("GLOG_minloglevel", "2")  # quiet glog (mediapipe)
+os.environ.setdefault("ABSL_MIN_LOG_LEVEL", "2")  # quiet absl
 
 import time
 import traceback
@@ -68,6 +69,12 @@ class PhoneLiveConfig:
     pinch_release_s: float = 0.12
 
     track_smooth_alpha: float = 0.25
+
+    # ✅ NEW: which mediapipe landmark to use for cursor tracking
+    # 8 = index fingertip (old)
+    # 5 = index MCP "knuckle" at the hand (recommended)
+    # 6 = index PIP (middle joint)
+    track_landmark_idx: int = 5
 
     adb_path: Optional[str] = None
     serial: Optional[str] = None
@@ -139,20 +146,34 @@ def _draw_ui(frame: np.ndarray, status: str, mode: str, palm_prog: float, last_s
 
     cv2.addWeighted(overlay, 0.30, frame, 0.70, 0, frame)
 
-    cv2.putText(frame, f"STATUS: {status}", (22, 48),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 0, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, f"MODE: {mode}", (22, 88),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(frame, f"STATUS: {status}", (22, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(frame, f"MODE: {mode}", (22, 88), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2, cv2.LINE_AA)
 
-    ready = (status == "READY")
+    ready = status == "READY"
     bar_x, bar_y = 22, 115
     bar_w, bar_h = 260, 12
     _draw_arming_bar(frame, bar_x, bar_y, bar_w, bar_h, palm_prog, ready)
-    cv2.putText(frame, f"ARM(palm): {int(palm_prog*100)}%", (bar_x + bar_w + 12, bar_y + 12),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        f"ARM(palm): {int(palm_prog*100)}%",
+        (bar_x + bar_w + 12, bar_y + 12),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA,
+    )
 
-    cv2.putText(frame, f"LAST: {last_sent_gesture}", (22, h - 22),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(
+        frame, f"LAST: {last_sent_gesture}", (22, h - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2, cv2.LINE_AA
+    )
+
+
+def _safe_lm_xy(lm: np.ndarray, idx: int) -> Tuple[float, float]:
+    if lm is None or lm.ndim != 2 or lm.shape[0] == 0:
+        return 0.0, 0.0
+    i = int(np.clip(int(idx), 0, lm.shape[0] - 1))
+    return float(lm[i, 0]), float(lm[i, 1])
 
 
 def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLiveConfig()):
@@ -170,7 +191,7 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
         log(tb)
         try:
             with open(crash_log_path, "a", encoding="utf-8") as f:
-                f.write("\n" + "="*80 + "\n")
+                f.write("\n" + "=" * 80 + "\n")
                 f.write(prefix + "\n")
                 f.write(tb + "\n")
         except Exception:
@@ -194,6 +215,7 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
     screen_w, screen_h = getattr(dev, "input_w", 1080), getattr(dev, "input_h", 1920)
     log(f"[OK] Phone connected: {dev.serial} input={screen_w}x{screen_h} rot={getattr(dev, 'rotation', 0)}")
     log(f"[LOG] Crash log: {crash_log_path}")
+    log(f"[CFG] tracking landmark idx={cfg.track_landmark_idx} (5=index MCP knuckle, 8=index tip)")
 
     model, le = load_model_and_encoder()
 
@@ -341,14 +363,19 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                     mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
 
                 x63 = None
+                track_nx = None
+                track_ny = None
+
                 if lm is not None:
                     x63 = normalize_landmarks([(float(x), float(y), float(z)) for x, y, z in lm])
                     window.append(x63)
                     if len(window) > cfg.window_size:
                         window.pop(0)
 
-                    idx = lm[8, :2]
-                    nx, ny = float(idx[0]), float(idx[1])
+                    # ✅ Tracking point: use knuckle (cfg.track_landmark_idx, default 5)
+                    nx, ny = _safe_lm_xy(lm, cfg.track_landmark_idx)
+                    track_nx, track_ny = nx, ny
+
                     tx = int(nx * screen_w)
                     ty = int(ny * screen_h)
 
@@ -376,7 +403,7 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                 else:
                     live_label, live_conf = raw_label, raw_conf
 
-                pinch_on = (live_label == cfg.pinch_label and live_conf >= cfg.pinch_min_conf)
+                pinch_on = live_label == cfg.pinch_label and live_conf >= cfg.pinch_min_conf
 
                 # DEBUG: mode changes
                 if mode != last_mode:
@@ -398,7 +425,9 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                 # periodic debug line (once/sec)
                 if now - last_debug_t >= 1.0:
                     last_debug_t = now
-                    log(f"[DBG] mode={mode} live={live_label} {live_conf:.2f} cursor={cursor_x},{cursor_y} screen={screen_w}x{screen_h}")
+                    log(
+                        f"[DBG] mode={mode} live={live_label} {live_conf:.2f} cursor={cursor_x},{cursor_y} screen={screen_w}x{screen_h}"
+                    )
 
                 # ---------------- FSM ----------------
                 if mode == "IDLE":
@@ -488,7 +517,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                                 seg12 = _resample_to_T(seg, cfg.window_size)
                                 seg_label, seg_conf = classify(seg12)
 
-                                if seg_label not in (cfg.neutral_label, cfg.pistol_label, cfg.garbage_label) and seg_conf >= cfg.commit_min_conf:
+                                if (
+                                    seg_label not in (cfg.neutral_label, cfg.pistol_label, cfg.garbage_label)
+                                    and seg_conf >= cfg.commit_min_conf
+                                ):
                                     if seg_label == "swipe_left":
                                         do_screen_swipe("left")
                                         last_sent_gesture = "swipe_left"
@@ -613,11 +645,11 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
                 _draw_ui(frame, status, mode, palm_prog, last_sent_gesture)
 
-                # red dot on camera frame while tracking/dragging
+                # ✅ red dot on camera frame while tracking/dragging (same landmark as tracking)
                 if lm is not None and mode in ("TRACKING", "DRAGGING"):
-                    idx = lm[8, :2]
-                    cx = int(idx[0] * frame.shape[1])
-                    cy = int(idx[1] * frame.shape[0])
+                    nx, ny = _safe_lm_xy(lm, cfg.track_landmark_idx)
+                    cx = int(nx * frame.shape[1])
+                    cy = int(ny * frame.shape[0])
                     cv2.circle(frame, (cx, cy), 10, (0, 0, 255), -1)
 
                 cv2.imshow(win_name, frame)
