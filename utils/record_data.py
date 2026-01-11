@@ -32,7 +32,6 @@ class RecordConfig:
 GESTURE_ORDER: List[str] = [
     "swipe_left",
     "swipe_right",
-    "swipe_down",
     "rotate_left",
     "close_fist",
     "neutral_palm",
@@ -86,7 +85,9 @@ def _draw_ui_box(
 
     cv2.putText(frame_bgr, title, (x0 + 14, y0 + 58), cv2.FONT_HERSHEY_SIMPLEX, 0.95, (10, 10, 10), 2, cv2.LINE_AA)
     cv2.putText(frame_bgr, subtitle, (x0 + 14, y0 + 102), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (30, 30, 30), 2, cv2.LINE_AA)
-    cv2.putText(frame_bgr, timer_text, (x0 + 14, y0 + 144), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (10, 10, 10), 2, cv2.LINE_AA)
+    cv2.putText(
+        frame_bgr, timer_text, (x0 + 14, y0 + 144), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (10, 10, 10), 2, cv2.LINE_AA
+    )
 
     cv2.putText(
         frame_bgr,
@@ -177,7 +178,9 @@ def run_record(
                     if results.multi_hand_landmarks:
                         mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
 
-                    _draw_ui_box(frame, (0, 0, 255), "COOLDOWN", f"{gesture}  ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s")
+                    _draw_ui_box(
+                        frame, (0, 0, 255), "COOLDOWN", f"{gesture}  ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s"
+                    )
                     cv2.imshow("Record Data", frame)
 
                     key = cv2.waitKey(1) & 0xFF
@@ -223,7 +226,13 @@ def run_record(
                             x63 = normalize_landmarks(lm).astype(np.float32, copy=False)
                             seq.append(x63)
 
-                    _draw_ui_box(frame, (0, 255, 0), "RECORDING", f"{gesture}  ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s | frames:{len(seq)}")
+                    _draw_ui_box(
+                        frame,
+                        (0, 255, 0),
+                        "RECORDING",
+                        f"{gesture}  ({sample_idx+1}/{n_samples})",
+                        f"{remaining:0.2f}s | frames:{len(seq)}",
+                    )
                     cv2.imshow("Record Data", frame)
 
                     key = cv2.waitKey(1) & 0xFF
