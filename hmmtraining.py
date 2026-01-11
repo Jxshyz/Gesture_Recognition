@@ -13,7 +13,6 @@ from sklearn.model_selection import train_test_split
 BASE_DIR = Path(__file__).resolve().parent
 DATA_ROOT = BASE_DIR / "data"
 
-
 # --------------------------------------------------
 # Load sequences from .npz
 # --------------------------------------------------
@@ -24,10 +23,13 @@ def load_npz_sequences(data_root: Path):
     for npz_file in data_root.rglob("*.npz"):
         data = np.load(npz_file)
 
-        if "seq" not in data or "label" not in data:
+        if "seq12" in data:
+            seq = data["seq12"]      # (12, 63)
+        elif "seq" in data:
+            seq = data["seq"]
+        else:
             continue
-
-        seq = data["seq"]          # (T, 63)
+          # (T, 63)
         label = str(data["label"])
 
         if seq.ndim != 2 or seq.shape[1] != 63:
@@ -90,6 +92,7 @@ def predict(sequence, models, scaler):
 # --------------------------------------------------
 # Main
 # --------------------------------------------------
+print("__name__ =", __name__)
 if __name__ == "__main__":
     sequences, labels = load_npz_sequences(DATA_ROOT)
 
