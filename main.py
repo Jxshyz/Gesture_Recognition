@@ -102,8 +102,8 @@ def main():
                     camera_index=cam_idx,
                     port=8010,
                     pred_min_interval_s=0.06,
-                    arm_hold_s=0.30,
-                    cooldown_s=0.20,
+                    arm_hold_s=0.10,
+                    cooldown_s=0.01,
                 )
             )
             return
