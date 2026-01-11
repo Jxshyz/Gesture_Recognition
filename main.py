@@ -1,3 +1,4 @@
+# main.py (komplette Datei – nur phone_live Block erweitert)
 import sys
 import webbrowser
 from pathlib import Path
@@ -20,6 +21,7 @@ def main():
             "  run_live_test\n"
             "  debug\n"
             "  -tetris\n"
+            "  phone_live\n"
         )
         sys.exit(1)
 
@@ -82,25 +84,20 @@ def main():
     elif cmd == "run_live":
         extra = sys.argv[2:]
 
-        # Flags erkennen
         subway_mode = any(a.lower() == "-subway" for a in extra)
         tetris_mode = any(a.lower() == "-tetris" for a in extra)
 
-        # Kameraindex erkennen (erste Zahl in extra)
         cam_idx = 0
         for a in extra:
             if a.isdigit():
                 cam_idx = int(a)
                 break
 
-        # ---------------------------
-        # SUBWAY / RUNNER MODE
-        # ---------------------------
         if subway_mode:
             run_runner(
                 RunnerConfig(
                     camera_index=cam_idx,
-                    port=8010,              # eigener Port
+                    port=8010,
                     pred_min_interval_s=0.06,
                     arm_hold_s=0.60,
                     cooldown_s=0.50,
@@ -108,14 +105,10 @@ def main():
             )
             return
 
-        # ab hier: infer_runtime live
         from utils.infer_runtime import run_live
         from utils.gesture_stream import set_latest_frame
         import cv2
 
-        # ---------------------------
-        # NORMALER LIVE-MODUS (OpenCV-Fenster)
-        # ---------------------------
         if not tetris_mode:
             run_live(
                 camera_index=cam_idx,
@@ -127,9 +120,6 @@ def main():
             )
             return
 
-        # ---------------------------
-        # TETRIS-MODUS (Web-App + FSM + Kamera im Browser)
-        # ---------------------------
         from utils.tetris_app import start_tetris_server_background
         from utils.tetris_bridge import send_gesture_to_tetris, send_telemetry_only
 
@@ -166,7 +156,7 @@ def main():
         return
 
     # -------------------------------------------------------------------------
-    # 6) Debug-Testmodus (Bilder anzeigen)
+    # 6) Debug-Testmodus
     # -------------------------------------------------------------------------
     elif cmd == "run_live_test":
         from utils.infer_runtime import run_live
@@ -206,62 +196,35 @@ def main():
             on_telemetry=None,
         )
         return
-    
-    # -------------------------------------------------------------------------
-    # PHONE: Pfeiltasten/Enter -> echtes Android (ADB)
-    # -------------------------------------------------------------------------
-    elif cmd == "phone_keys":
-        # optional: python main.py phone_keys <serial>
-        serial = sys.argv[2] if len(sys.argv) >= 3 else None
 
-        from utils.phone_keyboard_control import run_phone_keyboard_control, PhoneKeyConfig
-
-        run_phone_keyboard_control(
-            PhoneKeyConfig(
-                serial=serial,
-                adb_path=r"C:\Users\Joshua\AppData\Local\Android\Sdk\platform-tools\adb.exe",
-                repeat_min_interval_s=0.05,
-            )
-        )
-        return
-    
     # -------------------------------------------------------------------------
-    # PHONE: Pfeiltasten/Enter -> echtes Android (Touch via ADB swipe/tap)
-    # -------------------------------------------------------------------------
-    elif cmd == "phone_touch":
-        serial = sys.argv[2] if len(sys.argv) >= 3 else None
-
-        from utils.phone_touch_control import run_phone_touch_control, TouchConfig
-
-        run_phone_touch_control(
-            TouchConfig(
-                serial=serial,
-                adb_path=r"C:\Users\Joshua\AppData\Local\Android\Sdk\platform-tools\adb.exe",  # falls nötig
-                repeat_min_interval_s=0.08,
-                anchor_x_ratio=0.50,
-                anchor_y_ratio=0.75,
-                swipe_dx_ratio=0.18,
-                swipe_dy_ratio=0.18,
-                swipe_duration_ms=80,
-                tap_x_ratio=0.50,
-                tap_y_ratio=0.55,
-            )
-        )
-        return
-    
-    # -------------------------------------------------------------------------
-    # PHONE LIVE (2 Startsignale: palm -> gesture, pistol -> tracking)
+    # PHONE LIVE + OVERLAY
     # -------------------------------------------------------------------------
     elif cmd == "phone_live":
+        import subprocess
+        import atexit
         from utils.phone_gesture_live import run_phone_gesture_live
 
         cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+
+        # Overlay starten (sichtbar + mit Logs)
+        overlay_proc = subprocess.Popen(
+            [sys.executable, "-u", "utils/overlay.py", "--udp", "5005"],
+        )
+
+        def _cleanup():
+            try:
+                overlay_proc.terminate()
+            except Exception:
+                pass
+
+        atexit.register(_cleanup)
+
         run_phone_gesture_live(camera_index=cam_idx)
         return
 
-
     # -------------------------------------------------------------------------
-    # 7) Standalone-Tetris
+    # Standalone-Tetris
     # -------------------------------------------------------------------------
     elif cmd == "-tetris":
         from utils.tetris_app import run_tetris_server

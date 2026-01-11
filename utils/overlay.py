@@ -1,10 +1,17 @@
+# utils/overlay.py
 import sys
+import os
+import json
 import socket
 import threading
+import math
 
 from PyQt5.QtWidgets import QApplication, QWidget
 from PyQt5.QtGui import QPainter, QColor
-from PyQt5.QtCore import Qt, QPoint, QRect, pyqtSignal
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal
+
+
+CALIB_FILE = os.path.join(os.getcwd(), "overlay_calibration.json")
 
 
 # =========================
@@ -52,6 +59,7 @@ class ResizeHandle(QWidget):
 
     def mouseReleaseEvent(self, event):
         self.start_pos = None
+        self.start_geom = None
 
 
 # =========================
@@ -67,6 +75,7 @@ class Overlay(QWidget):
         super().__init__()
         print("### OVERLAY STARTED ###")
 
+        # window flags
         self.setWindowFlags(
             Qt.FramelessWindowHint |
             Qt.WindowStaysOnTopHint |
@@ -74,35 +83,86 @@ class Overlay(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        self.resize(360, 740)
+        # click-through toggle
+        self.click_through = False
 
-        # Punkt
-        self.dot_x = 200
-        self.dot_y = 200
-        self.dot_radius = 5
-        self.last_x = None
-        self.last_y = None
-        
-        # Glättung
-        self.smooth_alpha = 0.275   # 0.15 = sehr ruhig | 0.3 = direkter
+        # default size
+        self.setGeometry(200, 200, 360, 740)
+
+        # try load calibration
+        self.load_calibration()
+
+        print("[OVERLAY] F9 = Save position/size | F7 = Toggle click-through")
+
+        # dot
+        self.dot_x = 200.0
+        self.dot_y = 200.0
+        self.dot_radius = 6  # keep as int
+
+        # smoothing
+        self.smooth_alpha = 0.275
         self.smooth_x = None
         self.smooth_y = None
 
-
-        # Drag
+        # Drag move
         self.drag_offset = QPoint()
 
-        # Resize-Handles
+        # Resize handles
         self.left_handle = ResizeHandle(self, "left")
         self.right_handle = ResizeHandle(self, "right")
         self.top_handle = ResizeHandle(self, "top")
         self.bottom_handle = ResizeHandle(self, "bottom")
 
-        # Signal
+        # Signal connect
         self.position_received.connect(self.on_position_received)
 
         # UDP
         self.start_udp_listener(5005)
+
+    # -------------------------
+    # Calibration save/load
+    # -------------------------
+    def save_calibration(self):
+        g = self.geometry()
+        data = {"x": g.x(), "y": g.y(), "w": g.width(), "h": g.height()}
+        try:
+            with open(CALIB_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            print(f"[OVERLAY] Saved calibration: {data['x']},{data['y']},{data['w']},{data['h']}")
+        except Exception as e:
+            print("[OVERLAY] Save calibration failed:", e)
+
+    def load_calibration(self):
+        if not os.path.exists(CALIB_FILE):
+            return
+        try:
+            with open(CALIB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            x = int(data.get("x", 200))
+            y = int(data.get("y", 200))
+            w = int(data.get("w", 360))
+            h = int(data.get("h", 740))
+            self.setGeometry(x, y, w, h)
+            print(f"[OVERLAY] Loaded calibration: {x},{y},{w},{h}")
+        except Exception as e:
+            print("[OVERLAY] Load calibration failed:", e)
+
+    # -------------------------
+    # Click-through toggle
+    # -------------------------
+    def toggle_click_through(self):
+        self.click_through = not self.click_through
+
+        flags = self.windowFlags()
+        # Qt.WindowTransparentForInput makes it click-through
+        if self.click_through:
+            self.setWindowFlags(flags | Qt.WindowTransparentForInput)
+            print("[OVERLAY] Click-through: ON")
+        else:
+            self.setWindowFlags(flags & ~Qt.WindowTransparentForInput)
+            print("[OVERLAY] Click-through: OFF")
+
+        self.show()  # required after changing flags
 
     # =========================
     # UDP
@@ -124,10 +184,14 @@ class Overlay(QWidget):
         threading.Thread(target=listen, daemon=True).start()
 
     def on_position_received(self, x, y):
+        # clamp input
+        x = max(0.0, min(1.0, float(x)))
+        y = max(0.0, min(1.0, float(y)))
+
         target_x = x * self.width()
         target_y = y * self.height()
 
-        # Initialisierung
+        # smoothing
         if self.smooth_x is None:
             self.smooth_x = target_x
             self.smooth_y = target_y
@@ -136,33 +200,42 @@ class Overlay(QWidget):
             self.smooth_x = a * target_x + (1 - a) * self.smooth_x
             self.smooth_y = a * target_y + (1 - a) * self.smooth_y
 
+        # guard NaN/inf
+        if not (math.isfinite(self.smooth_x) and math.isfinite(self.smooth_y)):
+            return
+
         self.dot_x = self.smooth_x
         self.dot_y = self.smooth_y
         self.update()
-
 
     # =========================
     # Paint
     # =========================
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        try:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        # Rahmen
-        painter.setPen(QColor(0, 255, 0))
-        painter.setBrush(Qt.NoBrush)
-        b = self.DRAW_BORDER
-        painter.drawRect(b, b, self.width() - 2*b, self.height() - 2*b)
+            # border
+            painter.setPen(QColor(0, 255, 0))
+            painter.setBrush(Qt.NoBrush)
+            b = self.DRAW_BORDER
+            painter.drawRect(b, b, self.width() - 2*b, self.height() - 2*b)
 
-        # Punkt
-        painter.setBrush(QColor(255, 0, 0))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(
-            self.dot_x - self.dot_radius,
-            self.dot_y - self.dot_radius,
-            self.dot_radius * 2,
-            self.dot_radius * 2
-        )
+            # dot (✅ cast to int so PyQt never crashes)
+            painter.setBrush(QColor(255, 0, 0))
+            painter.setPen(Qt.NoPen)
+
+            r = int(self.dot_radius)
+            x = int(round(self.dot_x - r))
+            y = int(round(self.dot_y - r))
+            d = int(2 * r)
+
+            painter.drawEllipse(x, y, d, d)
+
+        except Exception as e:
+            # never crash overlay
+            print("[OVERLAY] paintEvent ERROR:", e)
 
     # =========================
     # Resize-Handles Layout
@@ -179,25 +252,33 @@ class Overlay(QWidget):
         super().resizeEvent(event)
 
     # =========================
-    # Move Window
+    # Move Window (only if not click-through)
     # =========================
     def mousePressEvent(self, event):
+        if self.click_through:
+            return
         if event.button() == Qt.LeftButton:
             self.drag_offset = event.globalPos() - self.frameGeometry().topLeft()
 
     def mouseMoveEvent(self, event):
+        if self.click_through:
+            return
         if event.buttons() == Qt.LeftButton:
             self.move(event.globalPos() - self.drag_offset)
 
-    def mouseDoubleClickEvent(self, event):
-        self.dot_x = event.x()
-        self.dot_y = event.y()
-        self.update()
+    # =========================
+    # Hotkeys
+    # =========================
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F9:
+            self.save_calibration()
+            return
+        if event.key() == Qt.Key_F7:
+            self.toggle_click_through()
+            return
+        super().keyPressEvent(event)
 
 
-# =========================
-# Main
-# =========================
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     overlay = Overlay()
