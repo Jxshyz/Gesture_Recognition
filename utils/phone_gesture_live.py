@@ -64,7 +64,7 @@ class PhoneLiveConfig:
     drag_move_min_px: int = 4
     drag_duration_ms: int = 90
 
-    pinch_hold_s: float = 0.18
+    pinch_hold_s: float = 0.5
     pinch_min_conf: float = 0.60
     pinch_release_s: float = 0.12
 
@@ -545,20 +545,42 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                             pinch_release_t = 0.0
 
                 elif mode == "TRACKING":
+                    # -----------------------------
+                    # PINCH = CLICK (HOLD 0.5s)
+                    # -----------------------------
                     if pinch_on:
                         pinch_hold_t += dt
                     else:
                         pinch_hold_t = 0.0
 
-                    if pinch_hold_t >= cfg.pinch_hold_s:
-                        mode = "DRAGGING"
-                        last_drag_x, last_drag_y = cursor_x, cursor_y
-                        last_drag_send_t = 0.0
-                        pinch_release_t = 0.0
-
+                    # CLICK DOWN nach Hold
+                    if pinch_hold_t >= cfg.pinch_hold_s and not touch_is_down:
                         down_ok = touch_down(cursor_x, cursor_y)
                         touch_is_down = down_ok
-                        last_sent_gesture = "pinch_down" if down_ok else "pinch_down(fallback)"
+                        last_sent_gesture = "click_down"
+                        pinch_hold_t = cfg.pinch_hold_s  # clamp
+
+                    # CLICK UP beim Loslassen
+                    if touch_is_down and not pinch_on:
+                        touch_up(cursor_x, cursor_y)
+                        touch_is_down = False
+                        pinch_hold_t = 0.0
+                        last_sent_gesture = "click_up"
+
+                    # Palm → zurück zu Gesture Mode
+                    if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
+                        palm_hold_t += dt
+                    else:
+                        palm_hold_t = 0.0
+
+                    if palm_hold_t >= cfg.palm_hold_s:
+                        if touch_is_down:
+                            touch_up(cursor_x, cursor_y)
+                            touch_is_down = False
+                        mode = "GESTURE_ARMED"
+                        commit_agg.reset()
+                        rec_frames = []
+                        palm_hold_t = cfg.palm_hold_s
                         pinch_hold_t = 0.0
 
                     if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
