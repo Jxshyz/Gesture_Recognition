@@ -4,7 +4,6 @@ from __future__ import annotations
 import webbrowser
 from dataclasses import dataclass
 from time import time
-from typing import Optional
 
 from utils.command_protocol import make_command, make_state
 from utils.gesture_state_machine import GestureStateMachine, GSMConfig
@@ -27,11 +26,11 @@ class RunnerConfig:
 
 
 def run_runner(cfg: RunnerConfig = RunnerConfig()) -> None:
-    # 1) Server starten
+    # 1) start server
     start_server_background(cfg.host, cfg.port)
     webbrowser.open(f"http://{cfg.host}:{cfg.port}/?v={int(time())}")
 
-    # 2) FSM erstellen
+    # 2) create FSM
     gsm = GestureStateMachine(
         GSMConfig(
             arm_hold_s=cfg.arm_hold_s,
@@ -47,7 +46,7 @@ def run_runner(cfg: RunnerConfig = RunnerConfig()) -> None:
 
         cmd, dbg = gsm.update(label, conf, ts)
 
-        # state info ~20 Hz (damit Progressbar im Browser wirklich smooth ist)
+        # state info ~20 Hz (for smoother progressbar in browser)
         if (ts - last_state_push) >= 0.05:
             last_state_push = ts
             manager.broadcast_sync(
@@ -61,7 +60,7 @@ def run_runner(cfg: RunnerConfig = RunnerConfig()) -> None:
                 )
             )
 
-        # command event (genau 1x)
+        # command event (exactly 1x)
         if cmd is not None:
             manager.broadcast_sync(
                 make_command(
@@ -73,7 +72,7 @@ def run_runner(cfg: RunnerConfig = RunnerConfig()) -> None:
                 )
             )
 
-    # 4) Live Predictor laufen lassen
+    # 4) run live predictor
     run_live_predictions(
         on_pred=on_pred,
         on_frame=None,

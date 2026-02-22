@@ -16,7 +16,7 @@ def ingest_npz_data():
 
     conn = sqlite3.connect(DB_PATH)
 
-    # Schema laden
+    # load schema
     with open(SCHEMA_PATH) as f:
         conn.executescript(f.read())
 
@@ -25,13 +25,12 @@ def ingest_npz_data():
     for npz_file in DATA_ROOT.rglob("*.npz"):
         data = np.load(npz_file)
 
-        # 🔴 wir nutzen seq12
         if "seq12" not in data or "label" not in data:
             print(f"[WARN] Skip {npz_file.name} (missing keys)")
             continue
 
-        seq = data["seq12"]          # (12, 63)
-        label = str(data["label"])   # string
+        seq = data["seq12"]  # (12, 63)
+        label = str(data["label"])  # string
 
         if seq.shape != (12, 63):
             print(f"[WARN] Skip {npz_file.name} shape={seq.shape}")
@@ -40,10 +39,7 @@ def ingest_npz_data():
         landmarks = seq.reshape(12, 21, 3)
         embedding = extract_embedding(landmarks)
 
-        cur = conn.execute(
-            "INSERT INTO samples (label) VALUES (?)",
-            (label,)
-        )
+        cur = conn.execute("INSERT INTO samples (label) VALUES (?)", (label,))
         sample_id = cur.lastrowid
         store_embedding(conn, sample_id, embedding)
 
@@ -53,6 +49,7 @@ def ingest_npz_data():
     conn.close()
 
     print(f"[OK] Ingest abgeschlossen. Samples eingefügt: {inserted}")
+
 
 if __name__ == "__main__":
     ingest_npz_data()

@@ -29,8 +29,8 @@ N_ESTIMATORS = 350  # <- hier steuerst du die Trainingsdauer
 ALLOWED_LABELS = {
     "swipe_left",
     "swipe_right",
-    "swipe_down",      # optional, falls du es nutzt
-    "rotate_left",     # optional, falls du es nutzt
+    "swipe_down",  # optional, falls du es nutzt
+    "rotate_left",  # optional, falls du es nutzt
     "close_fist",
     "neutral_palm",
     "finger_pistol",
@@ -77,7 +77,9 @@ def load_sequences() -> Tuple[List[np.ndarray], List[str]]:
     if not DATA_ROOT.exists():
         raise FileNotFoundError(f"{DATA_ROOT} nicht gefunden.")
 
-    search_root = DATA_ROOT / "recordings" if (DATA_ROOT / "recordings").exists() else DATA_ROOT
+    search_root = (
+        DATA_ROOT / "recordings" if (DATA_ROOT / "recordings").exists() else DATA_ROOT
+    )
     files = list(search_root.rglob("*.npy")) + list(search_root.rglob("*.npz"))
     if not files:
         return seqs, labels
@@ -130,9 +132,7 @@ def load_sequences() -> Tuple[List[np.ndarray], List[str]]:
 
 
 def build_windows(
-    seqs: List[np.ndarray],
-    labels: List[str],
-    window_size: int = WINDOW_SIZE
+    seqs: List[np.ndarray], labels: List[str], window_size: int = WINDOW_SIZE
 ) -> Tuple[np.ndarray, np.ndarray]:
     X_list: List[np.ndarray] = []
     y_list: List[str] = []
@@ -163,23 +163,25 @@ def _fit_gb_with_tqdm(
     X: np.ndarray,
     y_enc: np.ndarray,
     n_estimators: int = N_ESTIMATORS,
-    random_state: int = 42
+    random_state: int = 42,
 ) -> GradientBoostingClassifier:
     """
-    Trainiert GradientBoostingClassifier inkrementell (warm_start),
-    damit tqdm eine ETA/Restzeit anzeigen kann.
+    Train GradientBoostingClassifier incrementally (warm_start)
+    so that tqdm can display an ETA/remaining time.
     """
     if tqdm is None:
         print("[WARN] tqdm ist nicht installiert. Installiere mit: pip install tqdm")
         print("[INFO] Trainiere ohne Progressbar...")
-        model = GradientBoostingClassifier(n_estimators=n_estimators, random_state=random_state)
+        model = GradientBoostingClassifier(
+            n_estimators=n_estimators, random_state=random_state
+        )
         model.fit(X, y_enc)
         return model
 
     model = GradientBoostingClassifier(
-        n_estimators=1,      # Startwert, wird im Loop hochgezählt
+        n_estimators=1,  # Startwert, wird im Loop hochgezählt
         warm_start=True,
-        random_state=random_state
+        random_state=random_state,
     )
 
     pbar = tqdm(total=n_estimators, desc="Training (GradientBoosting)", unit="tree")
@@ -200,7 +202,9 @@ def train_and_save():
     print(f"[INFO] Geladen: {len(seqs)} Sequenzen")
 
     if len(seqs) == 0:
-        print("[ERROR] Keine Samples gefunden. Prüfe ./data/recordings/... und Labels in ALLOWED_LABELS.")
+        print(
+            "[ERROR] Keine Samples gefunden. Prüfe ./data/recordings/... und Labels in ALLOWED_LABELS."
+        )
         return
 
     print("[INFO] Baue Windows (189 Features)...")

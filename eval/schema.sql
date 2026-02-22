@@ -1,5 +1,5 @@
 -- =========================
--- Samples (eine Geste = ein Sample)
+-- Samples (one gesture = one sample)
 -- =========================
 CREATE TABLE IF NOT EXISTS samples (
     sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS samples (
 );
 
 -- =========================
--- Embeddings (feste Vektoren pro Sample)
+-- Embeddings (fixed vectors per sample)
 -- =========================
 CREATE TABLE IF NOT EXISTS embeddings (
     sample_id INTEGER PRIMARY KEY,

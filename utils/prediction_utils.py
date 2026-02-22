@@ -1,14 +1,15 @@
 from __future__ import annotations
-import time
 from collections import defaultdict
 from typing import Dict, Tuple, Optional
 
+
 class PredictionAggregator:
     """
-    Sammelt (label, conf)-Vorhersagen über eine Zeitspanne.
-    - Drosselt per min_interval_s (z. B. 50–100 ms), um nicht jeden Frame zu zählen.
-    - Ergebnis: Majority-Label, mittlere Confidence dieses Labels, Anzahl akzeptierter Samples.
+    Collects (label, conf) predictions over a period of time.
+    - Throttles down using min_interval_s (e.g., 50–100 ms) to avoid counting every frame.
+    - Result: Majority label, average confidence of that label, number of accepted samples.
     """
+
     def __init__(self, min_interval_s: float = 0.075):
         self.min_interval_s = float(min_interval_s)
         self.reset()

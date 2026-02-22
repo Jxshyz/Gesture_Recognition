@@ -70,7 +70,7 @@ class PhoneLiveConfig:
 
     track_smooth_alpha: float = 0.25
 
-    # ✅ NEW: which mediapipe landmark to use for cursor tracking
+    # which mediapipe landmark to use for cursor tracking
     # 8 = index fingertip (old)
     # 5 = index MCP "knuckle" at the hand (recommended)
     # 6 = index PIP (middle joint)
@@ -127,7 +127,9 @@ def _map_label_to_keyevent(label: str) -> Optional[int]:
     return None
 
 
-def _draw_arming_bar(frame: np.ndarray, x: int, y: int, w: int, h: int, prog: float, ready: bool):
+def _draw_arming_bar(
+    frame: np.ndarray, x: int, y: int, w: int, h: int, prog: float, ready: bool
+):
     prog = max(0.0, min(1.0, float(prog)))
     cv2.rectangle(frame, (x, y), (x + w, y + h), (35, 35, 35), -1)
     fill_w = int(w * prog)
@@ -136,7 +138,9 @@ def _draw_arming_bar(frame: np.ndarray, x: int, y: int, w: int, h: int, prog: fl
     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 0), 2)
 
 
-def _draw_ui(frame: np.ndarray, status: str, mode: str, palm_prog: float, last_sent_gesture: str):
+def _draw_ui(
+    frame: np.ndarray, status: str, mode: str, palm_prog: float, last_sent_gesture: str
+):
     h, w = frame.shape[:2]
     overlay = frame.copy()
 
@@ -146,8 +150,26 @@ def _draw_ui(frame: np.ndarray, status: str, mode: str, palm_prog: float, last_s
 
     cv2.addWeighted(overlay, 0.30, frame, 0.70, 0, frame)
 
-    cv2.putText(frame, f"STATUS: {status}", (22, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 0, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, f"MODE: {mode}", (22, 88), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        f"STATUS: {status}",
+        (22, 48),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.70,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame,
+        f"MODE: {mode}",
+        (22, 88),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA,
+    )
 
     ready = status == "READY"
     bar_x, bar_y = 22, 115
@@ -165,7 +187,14 @@ def _draw_ui(frame: np.ndarray, status: str, mode: str, palm_prog: float, last_s
     )
 
     cv2.putText(
-        frame, f"LAST: {last_sent_gesture}", (22, h - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2, cv2.LINE_AA
+        frame,
+        f"LAST: {last_sent_gesture}",
+        (22, h - 22),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA,
     )
 
 
@@ -176,7 +205,9 @@ def _safe_lm_xy(lm: np.ndarray, idx: int) -> Tuple[float, float]:
     return float(lm[i, 0]), float(lm[i, 1])
 
 
-def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLiveConfig()):
+def run_phone_gesture_live(
+    camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLiveConfig()
+):
     cfg.camera_index = camera_index
 
     # Crash log file (so you always see the reason even if window closes)
@@ -199,7 +230,9 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
     # connect
     try:
-        dev = AndroidDevice.connect(adb_path=cfg.adb_path, serial=cfg.serial, enable_u2=True)
+        dev = AndroidDevice.connect(
+            adb_path=cfg.adb_path, serial=cfg.serial, enable_u2=True
+        )
     except TypeError:
         dev = AndroidDevice.connect(adb_path=cfg.adb_path, serial=cfg.serial)
 
@@ -209,19 +242,30 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
     except Exception:
         log_exc("[ADB] refresh_display_info(force=True) failed at startup!")
         # fallback to sane defaults
-        if hasattr(dev, "input_w") and hasattr(dev, "input_h") and dev.input_w > 0 and dev.input_h > 0:
+        if (
+            hasattr(dev, "input_w")
+            and hasattr(dev, "input_h")
+            and dev.input_w > 0
+            and dev.input_h > 0
+        ):
             pass
 
     screen_w, screen_h = getattr(dev, "input_w", 1080), getattr(dev, "input_h", 1920)
-    log(f"[OK] Phone connected: {dev.serial} input={screen_w}x{screen_h} rot={getattr(dev, 'rotation', 0)}")
+    log(
+        f"[OK] Phone connected: {dev.serial} input={screen_w}x{screen_h} rot={getattr(dev, 'rotation', 0)}"
+    )
     log(f"[LOG] Crash log: {crash_log_path}")
-    log(f"[CFG] tracking landmark idx={cfg.track_landmark_idx} (5=index MCP knuckle, 8=index tip)")
+    log(
+        f"[CFG] tracking landmark idx={cfg.track_landmark_idx} (5=index MCP knuckle, 8=index tip)"
+    )
 
     model, le = load_model_and_encoder()
 
     mp_hands = mp.solutions.hands
     mp_draw = mp.solutions.drawing_utils
-    hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.6, min_tracking_confidence=0.6)
+    hands = mp_hands.Hands(
+        max_num_hands=1, min_detection_confidence=0.6, min_tracking_confidence=0.6
+    )
 
     cap = cv2.VideoCapture(cfg.camera_index)
     if not cap.isOpened():
@@ -297,7 +341,9 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
         try:
             dev.refresh_display_info(force=True)
         except Exception:
-            log_exc("[ADB] refresh_display_info(force=True) failed inside do_screen_swipe()")
+            log_exc(
+                "[ADB] refresh_display_info(force=True) failed inside do_screen_swipe()"
+            )
             return
 
         sw, sh = dev.input_w, dev.input_h
@@ -360,19 +406,25 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
                 lm = _extract_lm(results)
                 if results.multi_hand_landmarks:
-                    mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
+                    mp_draw.draw_landmarks(
+                        frame,
+                        results.multi_hand_landmarks[0],
+                        mp_hands.HAND_CONNECTIONS,
+                    )
 
                 x63 = None
                 track_nx = None
                 track_ny = None
 
                 if lm is not None:
-                    x63 = normalize_landmarks([(float(x), float(y), float(z)) for x, y, z in lm])
+                    x63 = normalize_landmarks(
+                        [(float(x), float(y), float(z)) for x, y, z in lm]
+                    )
                     window.append(x63)
                     if len(window) > cfg.window_size:
                         window.pop(0)
 
-                    # ✅ Tracking point: use knuckle (cfg.track_landmark_idx, default 5)
+                    # Tracking point: use knuckle (cfg.track_landmark_idx, default 5)
                     nx, ny = _safe_lm_xy(lm, cfg.track_landmark_idx)
                     track_nx, track_ny = nx, ny
 
@@ -403,11 +455,15 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                 else:
                     live_label, live_conf = raw_label, raw_conf
 
-                pinch_on = live_label == cfg.pinch_label and live_conf >= cfg.pinch_min_conf
+                pinch_on = (
+                    live_label == cfg.pinch_label and live_conf >= cfg.pinch_min_conf
+                )
 
                 # DEBUG: mode changes
                 if mode != last_mode:
-                    log(f"[FSM] {last_mode} -> {mode} (live={live_label} conf={live_conf:.2f})")
+                    log(
+                        f"[FSM] {last_mode} -> {mode} (live={live_label} conf={live_conf:.2f})"
+                    )
                     last_mode = mode
 
                 # UDP send to overlay (in tracking/dragging)
@@ -418,7 +474,9 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                         try:
                             px = cursor_x / max(1.0, float(screen_w))
                             py = cursor_y / max(1.0, float(screen_h))
-                            udp_sock.sendto(f"{px:.6f} {py:.6f}".encode("utf-8"), udp_addr)
+                            udp_sock.sendto(
+                                f"{px:.6f} {py:.6f}".encode("utf-8"), udp_addr
+                            )
                         except Exception:
                             log_exc("[UDP] send failed")
 
@@ -431,12 +489,18 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
                 # ---------------- FSM ----------------
                 if mode == "IDLE":
-                    if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
+                    if (
+                        live_label == cfg.neutral_label
+                        and live_conf >= cfg.start_min_conf
+                    ):
                         palm_hold_t += dt
                     else:
                         palm_hold_t = 0.0
 
-                    if live_label == cfg.pistol_label and live_conf >= cfg.start_min_conf:
+                    if (
+                        live_label == cfg.pistol_label
+                        and live_conf >= cfg.start_min_conf
+                    ):
                         pistol_hold_t += dt
                     else:
                         pistol_hold_t = 0.0
@@ -462,7 +526,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
                 elif mode == "GESTURE_ARMED":
                     palm_hold_t = cfg.palm_hold_s
-                    if not (live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf):
+                    if not (
+                        live_label == cfg.neutral_label
+                        and live_conf >= cfg.start_min_conf
+                    ):
                         mode = "GESTURE_RECORDING"
                         rec_frames = []
                         commit_agg.reset()
@@ -475,13 +542,18 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
                     if (
                         live_label
-                        and live_label not in (cfg.neutral_label, cfg.pistol_label, cfg.garbage_label)
+                        and live_label
+                        not in (cfg.neutral_label, cfg.pistol_label, cfg.garbage_label)
                         and live_conf >= cfg.commit_frame_conf_gate
                     ):
                         commit_agg.feed(live_label, live_conf, now)
 
                     maj_label, maj_conf, maj_n = commit_agg.result()
-                    if maj_label is not None and maj_n >= cfg.commit_min_samples and maj_conf >= cfg.commit_min_conf:
+                    if (
+                        maj_label is not None
+                        and maj_n >= cfg.commit_min_samples
+                        and maj_conf >= cfg.commit_min_conf
+                    ):
                         if maj_label == "swipe_left":
                             do_screen_swipe("left")
                             last_sent_gesture = "swipe_left"
@@ -506,7 +578,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                         pinch_release_t = 0.0
 
                     else:
-                        if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
+                        if (
+                            live_label == cfg.neutral_label
+                            and live_conf >= cfg.start_min_conf
+                        ):
                             end_counter += 1
                         else:
                             end_counter = 0
@@ -518,7 +593,12 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                                 seg_label, seg_conf = classify(seg12)
 
                                 if (
-                                    seg_label not in (cfg.neutral_label, cfg.pistol_label, cfg.garbage_label)
+                                    seg_label
+                                    not in (
+                                        cfg.neutral_label,
+                                        cfg.pistol_label,
+                                        cfg.garbage_label,
+                                    )
                                     and seg_conf >= cfg.commit_min_conf
                                 ):
                                     if seg_label == "swipe_left":
@@ -553,22 +633,25 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                     else:
                         pinch_hold_t = 0.0
 
-                    # CLICK DOWN nach Hold
+                    # CLICK DOWN after hold
                     if pinch_hold_t >= cfg.pinch_hold_s and not touch_is_down:
                         down_ok = touch_down(cursor_x, cursor_y)
                         touch_is_down = down_ok
                         last_sent_gesture = "click_down"
                         pinch_hold_t = cfg.pinch_hold_s  # clamp
 
-                    # CLICK UP beim Loslassen
+                    # CLICK UP after release
                     if touch_is_down and not pinch_on:
                         touch_up(cursor_x, cursor_y)
                         touch_is_down = False
                         pinch_hold_t = 0.0
                         last_sent_gesture = "click_up"
 
-                    # Palm → zurück zu Gesture Mode
-                    if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
+                    # Palm → back to Gesture Mode
+                    if (
+                        live_label == cfg.neutral_label
+                        and live_conf >= cfg.start_min_conf
+                    ):
                         palm_hold_t += dt
                     else:
                         palm_hold_t = 0.0
@@ -583,7 +666,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                         palm_hold_t = cfg.palm_hold_s
                         pinch_hold_t = 0.0
 
-                    if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
+                    if (
+                        live_label == cfg.neutral_label
+                        and live_conf >= cfg.start_min_conf
+                    ):
                         palm_hold_t += dt
                     else:
                         palm_hold_t = 0.0
@@ -627,7 +713,10 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                         last_drag_x, last_drag_y = cursor_x, cursor_y
                         last_drag_send_t = 0.0
 
-                    if live_label == cfg.neutral_label and live_conf >= cfg.start_min_conf:
+                    if (
+                        live_label == cfg.neutral_label
+                        and live_conf >= cfg.start_min_conf
+                    ):
                         palm_hold_t += dt
                     else:
                         palm_hold_t = 0.0
@@ -655,7 +744,9 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                         commit_agg.reset()
 
                 # status
-                palm_prog = (palm_hold_t / cfg.palm_hold_s) if cfg.palm_hold_s > 0 else 0.0
+                palm_prog = (
+                    (palm_hold_t / cfg.palm_hold_s) if cfg.palm_hold_s > 0 else 0.0
+                )
                 palm_prog = max(0.0, min(1.0, palm_prog))
                 if mode == "GESTURE_ARMED":
                     status = "READY"
@@ -667,7 +758,7 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
 
                 _draw_ui(frame, status, mode, palm_prog, last_sent_gesture)
 
-                # ✅ red dot on camera frame while tracking/dragging (same landmark as tracking)
+                # red dot on camera frame while tracking/dragging (same landmark as tracking)
                 if lm is not None and mode in ("TRACKING", "DRAGGING"):
                     nx, ny = _safe_lm_xy(lm, cfg.track_landmark_idx)
                     cx = int(nx * frame.shape[1])
@@ -680,7 +771,9 @@ def run_phone_gesture_live(camera_index: int = 0, cfg: PhoneLiveConfig = PhoneLi
                     break
 
             except Exception:
-                log_exc("[PHONE_LIVE] LOOP EXCEPTION (this is why your window disappears):")
+                log_exc(
+                    "[PHONE_LIVE] LOOP EXCEPTION (this is why your window disappears):"
+                )
                 break
 
     finally:

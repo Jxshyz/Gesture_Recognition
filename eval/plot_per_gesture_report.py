@@ -13,6 +13,27 @@ DB_PATH = BASE_DIR / "example.db"
 
 
 def compute_per_gesture(k=10):
+    """
+    Compute and print retrieval performance metrics per gesture class.
+
+    For each sample in the database:
+        - Retrieve the top 50 most similar samples.
+        - Build a binary relevance list based on matching labels.
+        - Compute Average Precision (AP).
+        - Compute Precision@K.
+
+    The metrics are aggregated per label (gesture class) and
+    reported as:
+        - mAP: Mean Average Precision per gesture
+        - P@K: Mean Precision at rank K per gesture
+        - N:   Number of query samples for that gesture
+
+    Parameters:
+        k (int, optional): Rank cutoff for Precision@K. Default is 10.
+
+    Returns:
+        None
+    """
     conn = sqlite3.connect(DB_PATH)
 
     labels = {
@@ -41,6 +62,22 @@ def compute_per_gesture(k=10):
 
 
 def plot():
+    """
+    Visualize per-gesture retrieval performance as a grouped bar chart.
+
+    The function retrieves gesture labels along with their
+    corresponding mAP and P@10 scores using `compute_per_gesture()`.
+
+    A side-by-side bar plot is created for each gesture:
+        - mAP (Mean Average Precision)
+        - P@10 (Precision at rank 10)
+
+    The Y-axis represents the evaluation score (range 0–1).
+    The X-axis lists gesture classes.
+
+    Returns:
+        None
+    """
     gestures, mAP, p10 = compute_per_gesture()
 
     x = np.arange(len(gestures))

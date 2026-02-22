@@ -9,6 +9,28 @@ DB_PATH = BASE_DIR / "example.db"
 
 
 def confusion_matrix_similarity():
+    """
+    Compute and print a normalized confusion matrix based on Top-1 similarity retrieval.
+
+    For each sample in the database, the function retrieves the single most similar
+    sample using the `find_similar` function. The predicted label is taken from the
+    most similar result (Top-1).
+
+    A confusion matrix is built in the form:
+        confusion[true_label][predicted_label] += 1
+
+    The matrix is printed with row-wise normalization, meaning each value represents
+    the proportion of predictions per true label (count / total samples of that label).
+
+    The database is expected to contain a table:
+        samples(sample_id INTEGER, label TEXT)
+
+    The similarity search is performed via:
+        find_similar(connection, query_id, top_k=1)
+
+    Output:
+        Prints a formatted confusion matrix with normalized values.
+    """
     conn = sqlite3.connect(DB_PATH)
 
     labels = {
@@ -51,6 +73,7 @@ def confusion_matrix_similarity():
         print(row)
 
     conn.close()
+
 
 if __name__ == "__main__":
     confusion_matrix_similarity()

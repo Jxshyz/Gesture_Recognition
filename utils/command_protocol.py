@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 @dataclass
 class CommandMsg:
     type: str  # "command"
-    cmd: str   # "LEFT"|"RIGHT"|"JUMP"|"DUCK"|"RESTART"...
+    cmd: str  # "LEFT"|"RIGHT"|"JUMP"|"DUCK"|"RESTART"...
     ts: float
     meta: Dict[str, Any]
 
@@ -33,7 +33,9 @@ def make_command(cmd: str, meta: Optional[Dict[str, Any]] = None) -> Dict[str, A
     )
 
 
-def make_state(state: str, progress: float, info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def make_state(
+    state: str, progress: float, info: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     p = float(progress)
     if p < 0:
         p = 0.0

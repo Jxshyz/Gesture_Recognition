@@ -1,8 +1,4 @@
-import numpy as np
 import sqlite3
-from feature_extraction import extract_embedding, store_embedding
-from evaluation import evaluate
-from pathlib import Path
 
 conn = sqlite3.connect("example.db")
 

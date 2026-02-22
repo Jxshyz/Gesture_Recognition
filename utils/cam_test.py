@@ -6,7 +6,36 @@ import cv2
 from utils.hand_tracking import HandTracker, put_hud
 
 
-def run_test_cam(camera_index: int = 0, width: Optional[int] = 1280, height: Optional[int] = 720) -> None:
+def run_test_cam(
+    camera_index: int = 0, width: Optional[int] = 1280, height: Optional[int] = 720
+) -> None:
+    """
+    Run a live webcam test for hand landmark tracking.
+
+    The function opens a video capture device, initializes a HandTracker,
+    and processes frames in real time. For each frame:
+
+        - The image is horizontally flipped (mirror view).
+        - Hand landmarks are detected and optionally drawn.
+        - FPS is estimated using exponential smoothing.
+        - A HUD overlay displays tracking information.
+
+    Displayed information includes:
+        - Number of detected hands
+        - Current FPS
+        - Handedness and confidence score
+        - Example landmark pixel coordinates
+
+    Press 'q' to exit the application.
+
+    Parameters:
+        camera_index (int): Index of the camera device to open.
+        width (Optional[int]): Desired frame width in pixels.
+        height (Optional[int]): Desired frame height in pixels.
+
+    Returns:
+        None
+    """
     cap = cv2.VideoCapture(camera_index)
 
     if width is not None:

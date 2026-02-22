@@ -25,12 +25,24 @@ def _find_adb() -> str:
     for k in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
         root = os.environ.get(k)
         if root:
-            cand = Path(root) / "platform-tools" / ("adb.exe" if os.name == "nt" else "adb")
+            cand = (
+                Path(root)
+                / "platform-tools"
+                / ("adb.exe" if os.name == "nt" else "adb")
+            )
             if cand.exists():
                 return str(cand)
 
     if os.name == "nt":
-        cand = Path.home() / "AppData" / "Local" / "Android" / "Sdk" / "platform-tools" / "adb.exe"
+        cand = (
+            Path.home()
+            / "AppData"
+            / "Local"
+            / "Android"
+            / "Sdk"
+            / "platform-tools"
+            / "adb.exe"
+        )
         if cand.exists():
             return str(cand)
 
@@ -74,7 +86,12 @@ class AndroidDevice:
             if not line or line.startswith("List of devices"):
                 continue
             parts = line.split()
-            if len(parts) >= 2 and parts[1] in ("device", "offline", "unauthorized", "authorizing"):
+            if len(parts) >= 2 and parts[1] in (
+                "device",
+                "offline",
+                "unauthorized",
+                "authorizing",
+            ):
                 devs.append((parts[0], parts[1]))
 
         if not devs:
@@ -86,14 +103,26 @@ class AndroidDevice:
                     serial = s
                     break
             if serial is None:
-                raise RuntimeError(f"Kein 'device' state verfügbar. adb devices:\n{out}")
+                raise RuntimeError(
+                    f"Kein 'device' state verfügbar. adb devices:\n{out}"
+                )
 
-        dev = cls(adb_path=adb, serial=serial, input_w=0, input_h=0, rotation=0, phys_w=0, phys_h=0, u2=None)
+        dev = cls(
+            adb_path=adb,
+            serial=serial,
+            input_w=0,
+            input_h=0,
+            rotation=0,
+            phys_w=0,
+            phys_h=0,
+            u2=None,
+        )
         dev.refresh_display_info(force=True)
 
         if enable_u2:
             try:
                 import uiautomator2 as u2
+
                 dev.u2 = u2.connect(serial)
                 _ = dev.u2.info
             except Exception as e:
@@ -124,38 +153,61 @@ class AndroidDevice:
         self.shell("input", "tap", str(int(x)), str(int(y)))
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 220) -> None:
-        self.shell("input", "swipe", str(int(x1)), str(int(y1)), str(int(x2)), str(int(y2)), str(int(duration_ms)))
+        self.shell(
+            "input",
+            "swipe",
+            str(int(x1)),
+            str(int(y1)),
+            str(int(x2)),
+            str(int(y2)),
+            str(int(duration_ms)),
+        )
 
     def set_show_touches(self, enabled: bool) -> None:
         self.shell("settings", "put", "system", "show_touches", "1" if enabled else "0")
 
     def set_pointer_location(self, enabled: bool) -> None:
-        self.shell("settings", "put", "system", "pointer_location", "1" if enabled else "0")
+        self.shell(
+            "settings", "put", "system", "pointer_location", "1" if enabled else "0"
+        )
 
     # ----------------------------
     # Cohesive touch (uiautomator2)
     # ----------------------------
     def touch_down(self, x: int, y: int) -> None:
         if not self.u2:
-            raise RuntimeError("touch_down benötigt uiautomator2 (connect(enable_u2=True)).")
+            raise RuntimeError(
+                "touch_down benötigt uiautomator2 (connect(enable_u2=True))."
+            )
         self.u2.touch.down(int(x), int(y))
 
     def touch_move(self, x: int, y: int) -> None:
         if not self.u2:
-            raise RuntimeError("touch_move benötigt uiautomator2 (connect(enable_u2=True)).")
+            raise RuntimeError(
+                "touch_move benötigt uiautomator2 (connect(enable_u2=True))."
+            )
         self.u2.touch.move(int(x), int(y))
 
     def touch_up(self, x: int, y: int) -> None:
         if not self.u2:
-            raise RuntimeError("touch_up benötigt uiautomator2 (connect(enable_u2=True)).")
+            raise RuntimeError(
+                "touch_up benötigt uiautomator2 (connect(enable_u2=True))."
+            )
         self.u2.touch.up(int(x), int(y))
 
-    # ✅ NEW: echter Drag (DOWN -> MOVE ... -> UP)
-    def drag(self, x1: int, y1: int, x2: int, y2: int, duration_s: float = 0.22, steps: int = 12) -> None:
+    def drag(
+        self,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        duration_s: float = 0.22,
+        steps: int = 12,
+    ) -> None:
         """
-        Simuliert einen "Finger bleibt gedrückt" Drag.
-        - Mit uiautomator2: DOWN/MOVE/UP (kohärent)
-        - Fallback: adb input swipe (funktioniert meist, ist aber nicht immer 100% 'hold')
+        Simulates a "finger held" drag.
+        - With uiautomator2: DOWN/MOVE/UP (coherent)
+        - Fallback: adb input swipe (usually works, but isn't always 100% 'hold')
         """
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         steps = max(2, int(steps))
@@ -176,7 +228,9 @@ class AndroidDevice:
     # ----------------------------
     # Display info
     # ----------------------------
-    def refresh_display_info(self, force: bool = False, min_interval_s: float = 0.8) -> None:
+    def refresh_display_info(
+        self, force: bool = False, min_interval_s: float = 0.8
+    ) -> None:
         now = time.time()
         last = getattr(self, "_last_disp_refresh", 0.0)
         if (not force) and (now - last) < min_interval_s:

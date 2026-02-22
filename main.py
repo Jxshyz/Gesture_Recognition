@@ -29,19 +29,23 @@ def main():
     cmd = sys.argv[1].lower()
 
     # -------------------------------------------------------------------------
-    # 1) Kamera testen
+    # 1) Test camera
     # -------------------------------------------------------------------------
     if cmd == "test_cam":
-        cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        cam_idx = (
+            int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        )
         run_test_cam(camera_index=cam_idx)
         return
 
     # -------------------------------------------------------------------------
-    # 2) Trainingsdaten aufnehmen
+    # 2) Record training data
     # -------------------------------------------------------------------------
     elif cmd == "record_data":
         if len(sys.argv) < 4:
-            print("Usage: python main.py record_data <gesture|all> <Name> [camera_index] [hand]")
+            print(
+                "Usage: python main.py record_data <gesture|all> <Name> [camera_index] [hand]"
+            )
             print("Examples:")
             print("  python main.py record_data all josh 1 right")
             print("  python main.py record_data swipe_left josh 0 left")
@@ -59,11 +63,13 @@ def main():
             elif arg.lower() in ("l", "left", "r", "right"):
                 hand = "Right" if arg.lower().startswith("r") else "Left"
 
-        run_record(gesture_arg=gesture_or_all, name=name, camera_index=cam_idx, hand=hand)
+        run_record(
+            gesture_arg=gesture_or_all, name=name, camera_index=cam_idx, hand=hand
+        )
         return
 
     # -------------------------------------------------------------------------
-    # 3) Modell trainieren
+    # 3) Train model
     # -------------------------------------------------------------------------
     elif cmd == "train_model":
         from utils.train_gesture_model import train_and_save
@@ -77,7 +83,9 @@ def main():
     elif cmd == "debug":
         from utils.debug_runner import run_debug
 
-        cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        cam_idx = (
+            int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        )
         run_debug(camera_index=cam_idx)
         return
 
@@ -146,7 +154,9 @@ def main():
             if ok:
                 set_latest_frame(buf.tobytes())
 
-        def on_telemetry(state, live_label, live_conf, seconds_left, armed_progress, armed_ready):
+        def on_telemetry(
+            state, live_label, live_conf, seconds_left, armed_progress, armed_ready
+        ):
             send_telemetry_only(
                 state=state,
                 label=live_label,
@@ -168,13 +178,19 @@ def main():
         return
 
     # -------------------------------------------------------------------------
-    # 6) Debug-Testmodus
+    # 6) Debug-Testmode
     # -------------------------------------------------------------------------
     elif cmd == "run_live_test":
         from utils.infer_runtime import run_live
-        from utils.image_utils import load_pictures, draw_picture_with_border, draw_label
+        from utils.image_utils import (
+            load_pictures,
+            draw_picture_with_border,
+            draw_label,
+        )
 
-        cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        cam_idx = (
+            int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        )
 
         PICTURES_DIR = Path("./pictures")
         G_MAP = {
@@ -217,7 +233,9 @@ def main():
         import atexit
         from utils.phone_gesture_live import run_phone_gesture_live
 
-        cam_idx = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        cam_idx = (
+            int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].isdigit() else 0
+        )
 
         overlay_proc = subprocess.Popen(
             [sys.executable, "-u", "utils/overlay.py", "--udp", "5005"],

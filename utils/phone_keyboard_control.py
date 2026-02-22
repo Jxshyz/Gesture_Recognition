@@ -13,10 +13,10 @@ from pynput import keyboard
 
 # Android KeyEvent Codes
 KEYCODES = {
-    "LEFT": 21,   # KEYCODE_DPAD_LEFT
+    "LEFT": 21,  # KEYCODE_DPAD_LEFT
     "RIGHT": 22,  # KEYCODE_DPAD_RIGHT
-    "UP": 19,     # KEYCODE_DPAD_UP
-    "DOWN": 20,   # KEYCODE_DPAD_DOWN
+    "UP": 19,  # KEYCODE_DPAD_UP
+    "DOWN": 20,  # KEYCODE_DPAD_DOWN
     "ENTER": 66,  # KEYCODE_ENTER
     # Alternative for "select": 23 (KEYCODE_DPAD_CENTER)
 }
@@ -37,7 +37,9 @@ def _find_adb(adb_path: Optional[str] = None) -> str:
     for env in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
         root = os.environ.get(env)
         if root:
-            cand = os.path.join(root, "platform-tools", "adb.exe" if os.name == "nt" else "adb")
+            cand = os.path.join(
+                root, "platform-tools", "adb.exe" if os.name == "nt" else "adb"
+            )
             if os.path.exists(cand):
                 return cand
 

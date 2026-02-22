@@ -8,19 +8,19 @@ from typing import Deque, Dict, Optional, Tuple
 
 @dataclass
 class GSMConfig:
-    # Arm-Geste (z.B. fist)
+    # Arm gestures (e.g. fist)
     arm_label: str = "fist"
     arm_min_conf: float = 0.60
     arm_hold_s: float = 0.30  # wie lange fist gehalten werden muss, um ARMED zu werden
 
-    # Action-Gesten
+    # Action gestures
     action_min_conf: float = 0.55
-    vote_window: int = 5       # N Predictions für Majority Vote
-    vote_min_majority: int = 3 # min Stimmen für Winner
+    vote_window: int = 5  # N Predictions for Majority Vote
+    vote_min_majority: int = 3  # min counts for winner
 
     # Timing
-    armed_timeout_s: float = 2.0   # wenn keine Action kommt -> zurück zu IDLE
-    cooldown_s: float = 0.50       # nach Command
+    armed_timeout_s: float = 2.0  # if no Action -> back to IDLE
+    cooldown_s: float = 0.50  # after Command
 
     # Map (Model-Labels -> Commands)
     label_to_cmd: Dict[str, str] = None
@@ -61,11 +61,9 @@ class GestureStateMachine:
         self._cooldown_until = 0.0
         self._votes: Deque[str] = deque(maxlen=self.cfg.vote_window)
 
-    def update(self, label: str, conf: float, ts: Optional[float] = None) -> Tuple[Optional[str], Dict]:
-        """
-        Input: per-Prediction label/conf (eure bestehende Pipeline)
-        Output: (cmd_or_None, debug_state_dict)
-        """
+    def update(
+        self, label: str, conf: float, ts: Optional[float] = None
+    ) -> Tuple[Optional[str], Dict]:
         now = float(time() if ts is None else ts)
         dt = now - self._last_update_t
         if dt < 0:
@@ -84,7 +82,7 @@ class GestureStateMachine:
                 self._arm_t = 0.0
                 self._votes.clear()
 
-        # IDLE -> ARMED (fist halten)
+        # IDLE -> ARMED (hold fist)
         if self.state == self.IDLE:
             if label == self.cfg.arm_label and conf >= self.cfg.arm_min_conf:
                 self._arm_t += dt
@@ -106,26 +104,31 @@ class GestureStateMachine:
             }
             return None, debug
 
-        # ARMED: Majority Vote über Actions
+        # ARMED: Majority Vote per Actions
         if self.state == self.ARMED:
             # Timeout
             if (now - self._armed_since) > self.cfg.armed_timeout_s:
                 self.state = self.IDLE
                 self._votes.clear()
-                debug = {"state": self.state, "arming_progress": 0.0, "label": label, "conf": conf}
+                debug = {
+                    "state": self.state,
+                    "arming_progress": 0.0,
+                    "label": label,
+                    "conf": conf,
+                }
                 return None, debug
 
-            # Nur Action-Labels voten
+            # only vote Action-Labels
             if label in self.cfg.label_to_cmd and conf >= self.cfg.action_min_conf:
                 self._votes.append(label)
 
-            # Entscheiden, wenn genug Votes vorhanden
+            # decide, if there are enough votes
             if len(self._votes) == self.cfg.vote_window:
                 c = Counter(self._votes)
                 winner, n = c.most_common(1)[0]
                 if n >= self.cfg.vote_min_majority:
                     cmd = self.cfg.label_to_cmd[winner]
-                    # genau 1 Command feuern, dann cooldown
+                    # exactly 1 Command, then cooldown
                     self.state = self.COOLDOWN
                     self._cooldown_until = now + self.cfg.cooldown_s
                     self._votes.clear()
@@ -140,5 +143,10 @@ class GestureStateMachine:
             return cmd, debug
 
         # Fallback
-        debug = {"state": self.state, "arming_progress": 0.0, "label": label, "conf": conf}
+        debug = {
+            "state": self.state,
+            "arming_progress": 0.0,
+            "label": label,
+            "conf": conf,
+        }
         return None, debug

@@ -7,9 +7,11 @@ UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+
 def send(x, y):
     msg = f"{x} {y}"
     sock.sendto(msg.encode(), (UDP_IP, UDP_PORT))
+
 
 # ---------------- MediaPipe ----------------
 mp_hands = mp.solutions.hands
@@ -17,7 +19,7 @@ hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=1,
     min_detection_confidence=0.6,
-    min_tracking_confidence=0.6
+    min_tracking_confidence=0.6,
 )
 
 cap = cv2.VideoCapture(0)  # ggf. 1, 2, ...
@@ -40,8 +42,8 @@ while True:
 
         # 👉 Index-Finger-Spitze (Landmark 8)
         lm = hand.landmark[8]
-        x_norm = lm.x          # 0..1
-        y_norm = lm.y          # 0..1
+        x_norm = lm.x  # 0..1
+        y_norm = lm.y  # 0..1
 
         send(x_norm, y_norm)
 

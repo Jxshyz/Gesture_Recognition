@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 import adbutils
 import scrcpy
@@ -14,14 +14,14 @@ from scrcpy import const
 @dataclass
 class ScrcpyDeviceConfig:
     serial: Optional[str] = None
-    # Video ist nicht zwingend nötig, aber Start muss laufen, damit Control zuverlässig geht
+    # Video is not strictly necessary, but Start must be running for Control to function reliably
     max_width: int = 0
     bitrate: int = 8_000_000
     max_fps: int = 0
     flip: bool = False
     block_frame: bool = False
     stay_awake: bool = True
-    lock_screen_orientation: int = -1  # -1 = keine Sperre
+    lock_screen_orientation: int = -1  # -1 = no lock
 
 
 class AndroidDeviceScrcpy:
@@ -154,9 +154,18 @@ class AndroidDeviceScrcpy:
     def touch_up(self, x: int, y: int, touch_id: int = 1):
         self.control.touch(int(x), int(y), action=const.ACTION_UP, touch_id=touch_id)
 
-    def swipe(self, x1: int, y1: int, x2: int, y2: int, step: int = 12, delay: float = 0.003):
+    def swipe(
+        self, x1: int, y1: int, x2: int, y2: int, step: int = 12, delay: float = 0.003
+    ):
         # stepwise swipe (smoother than adb input)
-        self.control.swipe(int(x1), int(y1), int(x2), int(y2), move_step_length=step, move_steps_delay=delay)
+        self.control.swipe(
+            int(x1),
+            int(y1),
+            int(x2),
+            int(y2),
+            move_step_length=step,
+            move_steps_delay=delay,
+        )
 
     def tap(self, x: int, y: int, touch_id: int = 1, hold_s: float = 0.03):
         self.touch_down(x, y, touch_id=touch_id)

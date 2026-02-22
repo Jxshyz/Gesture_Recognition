@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 BASE_DIR = Path(__file__).resolve().parent
 DATA_ROOT = BASE_DIR / "data"
 
+
 # --------------------------------------------------
 # Load sequences from .npz
 # --------------------------------------------------
@@ -24,12 +25,12 @@ def load_npz_sequences(data_root: Path):
         data = np.load(npz_file)
 
         if "seq12" in data:
-            seq = data["seq12"]      # (12, 63)
+            seq = data["seq12"]  # (12, 63)
         elif "seq" in data:
             seq = data["seq"]
         else:
             continue
-          # (T, 63)
+        # (T, 63)
         label = str(data["label"])
 
         if seq.ndim != 2 or seq.shape[1] != 63:
@@ -61,10 +62,7 @@ def train_hmms(sequences, labels, n_states=5, n_iter=20):
         X = np.vstack(seqs)
 
         model = hmm.GaussianHMM(
-            n_components=n_states,
-            covariance_type="diag",
-            n_iter=n_iter,
-            verbose=False
+            n_components=n_states, covariance_type="diag", n_iter=n_iter, verbose=False
         )
 
         model.fit(X, lengths)
@@ -107,11 +105,7 @@ if __name__ == "__main__":
 
     # train / test split
     X_train, X_test, y_train, y_test = train_test_split(
-        sequences,
-        labels,
-        test_size=0.2,
-        stratify=labels,
-        random_state=42
+        sequences, labels, test_size=0.2, stratify=labels, random_state=42
     )
 
     models, scaler = train_hmms(X_train, y_train, n_states=5, n_iter=20)

@@ -20,9 +20,9 @@ class HighscoreEntry:
 
 class HighscoreStore:
     """
-    Speichert pro User genau EINEN Bestscore (max).
-    Case-insensitive per casefold().
-    Pro User eine Datei: ./Highscore_Tetris/<userkey>.json
+    Stores exactly ONE high score (max) per user
+    Case-insensitive via casefold()
+    One file per user: ./Highscore_Tetris/<userkey>.json
     """
 
     def __init__(self, root_dir: Path):
@@ -53,7 +53,9 @@ class HighscoreStore:
             updated_at = float(data.get("updated_at", 0.0))
             if not key:
                 return None
-            return HighscoreEntry(key=key, name=name, score=max(0, score), updated_at=updated_at)
+            return HighscoreEntry(
+                key=key, name=name, score=max(0, score), updated_at=updated_at
+            )
         except Exception:
             return None
 
@@ -65,7 +67,7 @@ class HighscoreStore:
 
     def update_best(self, name: str, score: int) -> Tuple[bool, int]:
         """
-        Update nur wenn score > bisheriger Bestscore.
+        Update only if score > previous best score
         Return: (updated?, best_after)
         """
         disp_name = (name or "").strip() or "Player"
@@ -86,13 +88,23 @@ class HighscoreStore:
                 if current and current.name != disp_name:
                     self._atomic_write_json(
                         path,
-                        {"key": key, "name": disp_name, "score": best, "updated_at": time.time()},
+                        {
+                            "key": key,
+                            "name": disp_name,
+                            "score": best,
+                            "updated_at": time.time(),
+                        },
                     )
                 return False, best
 
             self._atomic_write_json(
                 path,
-                {"key": key, "name": disp_name, "score": score, "updated_at": time.time()},
+                {
+                    "key": key,
+                    "name": disp_name,
+                    "score": score,
+                    "updated_at": time.time(),
+                },
             )
             return True, score
 
@@ -105,4 +117,7 @@ class HighscoreStore:
 
         # desc score, asc name
         entries.sort(key=lambda x: (-x.score, x.name.casefold()))
-        return [{"name": e.name, "score": e.score, "updated_at": e.updated_at} for e in entries]
+        return [
+            {"name": e.name, "score": e.score, "updated_at": e.updated_at}
+            for e in entries
+        ]

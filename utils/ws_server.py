@@ -90,7 +90,9 @@ async def ws_endpoint(ws: WebSocket):
         await manager.disconnect(ws)
 
 
-def start_server_background(host: str = "127.0.0.1", port: int = 8010) -> threading.Thread:
+def start_server_background(
+    host: str = "127.0.0.1", port: int = 8010
+) -> threading.Thread:
     def _run():
         uvicorn.run(app, host=host, port=port, log_level="info")
 

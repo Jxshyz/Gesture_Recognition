@@ -76,11 +76,7 @@ class Overlay(QWidget):
         print("### OVERLAY STARTED ###")
 
         # window flags
-        self.setWindowFlags(
-            Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.Tool
-        )
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         # click-through toggle
@@ -128,7 +124,9 @@ class Overlay(QWidget):
         try:
             with open(CALIB_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f)
-            print(f"[OVERLAY] Saved calibration: {data['x']},{data['y']},{data['w']},{data['h']}")
+            print(
+                f"[OVERLAY] Saved calibration: {data['x']},{data['y']},{data['w']},{data['h']}"
+            )
         except Exception as e:
             print("[OVERLAY] Save calibration failed:", e)
 
@@ -220,7 +218,7 @@ class Overlay(QWidget):
             painter.setPen(QColor(0, 255, 0))
             painter.setBrush(Qt.NoBrush)
             b = self.DRAW_BORDER
-            painter.drawRect(b, b, self.width() - 2*b, self.height() - 2*b)
+            painter.drawRect(b, b, self.width() - 2 * b, self.height() - 2 * b)
 
             # dot (✅ cast to int so PyQt never crashes)
             painter.setBrush(QColor(255, 0, 0))
@@ -244,10 +242,10 @@ class Overlay(QWidget):
         s = self.HANDLE_SIZE
         w, h = self.width(), self.height()
 
-        self.left_handle.setGeometry(0, s, s, h - 2*s)
-        self.right_handle.setGeometry(w - s, s, s, h - 2*s)
-        self.top_handle.setGeometry(s, 0, w - 2*s, s)
-        self.bottom_handle.setGeometry(s, h - s, w - 2*s, s)
+        self.left_handle.setGeometry(0, s, s, h - 2 * s)
+        self.right_handle.setGeometry(w - s, s, s, h - 2 * s)
+        self.top_handle.setGeometry(s, 0, w - 2 * s, s)
+        self.bottom_handle.setGeometry(s, h - s, w - 2 * s, s)
 
         super().resizeEvent(event)
 

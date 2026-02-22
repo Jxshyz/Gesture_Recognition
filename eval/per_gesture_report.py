@@ -12,7 +12,6 @@ DB_PATH = BASE_DIR / "example.db"
 def per_gesture_report(k=10):
     conn = sqlite3.connect(DB_PATH)
 
-
     labels = {
         sid: label
         for sid, label in conn.execute("SELECT sample_id, label FROM samples")
@@ -24,10 +23,7 @@ def per_gesture_report(k=10):
     for query_id, query_label in labels.items():
         results = find_similar(conn, query_id, top_k=50)
 
-        hits = [
-            1 if labels[sid] == query_label else 0
-            for sid, _ in results
-        ]
+        hits = [1 if labels[sid] == query_label else 0 for sid, _ in results]
 
         ap = average_precision(hits)
         p_k = precision_at_k(hits, k)
@@ -54,6 +50,7 @@ def per_gesture_report(k=10):
         print(f"{label:15s}  {mean_ap:6.3f}  {mean_p:6.3f}  {n:4d}")
 
     conn.close()
+
 
 if __name__ == "__main__":
     per_gesture_report()

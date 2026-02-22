@@ -55,11 +55,15 @@ def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
     return out
 
 
-def _pick_hand(results, desired_hand: str) -> Optional[List[Tuple[float, float, float]]]:
+def _pick_hand(
+    results, desired_hand: str
+) -> Optional[List[Tuple[float, float, float]]]:
     if not results.multi_hand_landmarks:
         return None
 
-    if results.multi_handedness and len(results.multi_handedness) == len(results.multi_hand_landmarks):
+    if results.multi_handedness and len(results.multi_handedness) == len(
+        results.multi_hand_landmarks
+    ):
         for idx, hd in enumerate(results.multi_handedness):
             label = hd.classification[0].label
             if label.lower() == desired_hand.lower():
@@ -83,10 +87,35 @@ def _draw_ui_box(
     cv2.rectangle(frame_bgr, (x0, y0), (x0 + w, y0 + h), (245, 245, 245), -1)
     cv2.rectangle(frame_bgr, (x0, y0), (x0 + w, y0 + h), border_bgr, 6)
 
-    cv2.putText(frame_bgr, title, (x0 + 14, y0 + 58), cv2.FONT_HERSHEY_SIMPLEX, 0.95, (10, 10, 10), 2, cv2.LINE_AA)
-    cv2.putText(frame_bgr, subtitle, (x0 + 14, y0 + 102), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (30, 30, 30), 2, cv2.LINE_AA)
     cv2.putText(
-        frame_bgr, timer_text, (x0 + 14, y0 + 144), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (10, 10, 10), 2, cv2.LINE_AA
+        frame_bgr,
+        title,
+        (x0 + 14, y0 + 58),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.95,
+        (10, 10, 10),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame_bgr,
+        subtitle,
+        (x0 + 14, y0 + 102),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.75,
+        (30, 30, 30),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame_bgr,
+        timer_text,
+        (x0 + 14, y0 + 144),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.75,
+        (10, 10, 10),
+        2,
+        cv2.LINE_AA,
     )
 
     cv2.putText(
@@ -116,7 +145,9 @@ def run_record(
     desired_hand = "Right" if str(hand).lower().startswith("r") else "Left"
 
     if gesture_arg == "all":
-        plan: List[Tuple[str, int]] = [(g, cfg.samples_per_gesture) for g in GESTURE_ORDER]
+        plan: List[Tuple[str, int]] = [
+            (g, cfg.samples_per_gesture) for g in GESTURE_ORDER
+        ]
     else:
         plan = [(gesture_arg, cfg.samples_per_gesture)]
 
@@ -154,7 +185,9 @@ def run_record(
             if quit_all:
                 break
 
-            print(f"\n--- Gesture [{gi}/{len(plan)}]: {gesture} | samples={n_samples} ---")
+            print(
+                f"\n--- Gesture [{gi}/{len(plan)}]: {gesture} | samples={n_samples} ---"
+            )
             gesture_dir = out_base / gesture
             _ensure_dir(gesture_dir)
 
@@ -176,10 +209,18 @@ def run_record(
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results = hands_model.process(rgb)
                     if results.multi_hand_landmarks:
-                        mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
+                        mp_draw.draw_landmarks(
+                            frame,
+                            results.multi_hand_landmarks[0],
+                            mp_hands.HAND_CONNECTIONS,
+                        )
 
                     _draw_ui_box(
-                        frame, (0, 0, 255), "COOLDOWN", f"{gesture}  ({sample_idx+1}/{n_samples})", f"{remaining:0.2f}s"
+                        frame,
+                        (0, 0, 255),
+                        "COOLDOWN",
+                        f"{gesture}  ({sample_idx+1}/{n_samples})",
+                        f"{remaining:0.2f}s",
                     )
                     cv2.imshow("Record Data", frame)
 
@@ -217,7 +258,11 @@ def run_record(
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results = hands_model.process(rgb)
                     if results.multi_hand_landmarks:
-                        mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
+                        mp_draw.draw_landmarks(
+                            frame,
+                            results.multi_hand_landmarks[0],
+                            mp_hands.HAND_CONNECTIONS,
+                        )
 
                     if now >= next_sample_t:
                         next_sample_t += frame_interval
@@ -250,14 +295,19 @@ def run_record(
                     break
 
                 if len(seq) < 4:
-                    print(f"  [WARN] too few frames ({len(seq)}). Not saved. Repeat sample.")
+                    print(
+                        f"  [WARN] too few frames ({len(seq)}). Not saved. Repeat sample."
+                    )
                     continue
 
                 seq_arr = np.asarray(seq, dtype=np.float32)
                 seq12 = _resample_to_T(seq_arr, cfg.window_size)
 
                 ts = int(time.time())
-                out_path = gesture_dir / f"{gesture}_{name}_{desired_hand}_{ts}_{sample_idx:03d}.npz"
+                out_path = (
+                    gesture_dir
+                    / f"{gesture}_{name}_{desired_hand}_{ts}_{sample_idx:03d}.npz"
+                )
                 np.savez_compressed(
                     out_path,
                     seq=seq_arr,

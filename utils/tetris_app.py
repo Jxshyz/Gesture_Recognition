@@ -84,7 +84,7 @@ async def debug_index_path():
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """
-    index.html bei JEDEM Request neu laden (kein Cache)
+    Reload index.html on EVERY request (no cache)
     """
     index_path = os.path.join(FRONTEND_DIR, "index.html")
     if not os.path.exists(index_path):
@@ -104,10 +104,14 @@ async def index():
 async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
 
-    # Direkt initial push: Telemetry + Highscores
+    # Direct initial push: Telemetry + high scores
     try:
-        await ws.send_text(json.dumps({"type": "telemetry", "data": TELEMETRY.snapshot()}))
-        await ws.send_text(json.dumps({"type": "highscores", "items": highscores.list_highscores()}))
+        await ws.send_text(
+            json.dumps({"type": "telemetry", "data": TELEMETRY.snapshot()})
+        )
+        await ws.send_text(
+            json.dumps({"type": "highscores", "items": highscores.list_highscores()})
+        )
     except Exception:
         pass
 
@@ -127,7 +131,9 @@ async def video_feed():
         while True:
             frame = get_latest_frame()
             if frame is not None:
-                yield (boundary + b"\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
+                yield (
+                    boundary + b"\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                )
             await asyncio.sleep(0.03)
 
     return StreamingResponse(
@@ -206,7 +212,9 @@ class HighscoreSubmit(BaseModel):
 
 @app.get("/api/highscores")
 async def get_highscores():
-    return JSONResponse({"items": highscores.list_highscores()}, headers=_no_cache_headers())
+    return JSONResponse(
+        {"items": highscores.list_highscores()}, headers=_no_cache_headers()
+    )
 
 
 @app.post("/api/highscores/submit")
@@ -215,7 +223,11 @@ async def submit_highscore(payload: HighscoreSubmit):
     score = int(payload.score or 0)
 
     if not name:
-        return JSONResponse({"ok": False, "error": "name required"}, status_code=400, headers=_no_cache_headers())
+        return JSONResponse(
+            {"ok": False, "error": "name required"},
+            status_code=400,
+            headers=_no_cache_headers(),
+        )
     if score < 0:
         score = 0
 
@@ -232,14 +244,14 @@ async def submit_highscore(payload: HighscoreSubmit):
 
 
 # ----------------------------------------------------------------------
-# QUIT (X im Browser) -> Python Prozess beenden
+# QUIT (X in Browser) -> end Python process
 # ----------------------------------------------------------------------
 @app.post("/api/quit")
 async def api_quit():
     """
-    Beendet den kompletten Prozess (Server + run_live).
-    Wir starten einen Thread, warten kurz, dann os._exit(0),
-    damit die HTTP-Response noch rausgeht.
+    Terminates the entire process (server + run_live).
+    We start a thread, wait briefly, then os._exit(0),
+    so that the HTTP response is still sent.
     """
 
     def _killer():

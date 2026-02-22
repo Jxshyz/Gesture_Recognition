@@ -28,7 +28,10 @@ def crop_center_9_16(frame):
 # ---------------- MediaPipe ----------------
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
-    static_image_mode=False, max_num_hands=1, min_detection_confidence=0.6, min_tracking_confidence=0.6
+    static_image_mode=False,
+    max_num_hands=1,
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6,
 )
 
 cap = cv2.VideoCapture(0)

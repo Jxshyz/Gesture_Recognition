@@ -16,13 +16,13 @@ from utils.model_io import load_model_and_encoder, predict_feat189, decode_label
 
 @dataclass
 class LiveConfig:
-    # MUSS wie Training sein
+    # Has to be exactly as in training
     window_size: int = 12
 
     neutral_label: str = "neutral_palm"
     garbage_label: str = "garbage"
 
-    # Arming: neutral muss X Sekunden gehalten werden (zeitbasiert)
+    # Arming: neutral has to be held X seconds (time based)
     neutral_min_conf: float = 0.60
     neutral_hold_s: float = 0.5
 
@@ -30,22 +30,22 @@ class LiveConfig:
     record_min_frames: int = 8
     record_max_frames: int = 80
 
-    # Segment-Ende: neutral stabil als Ende (framebasiert)
+    # Segment-Ende: neutral stable as end (frame based)
     end_hold_frames: int = 6
 
     # Early-Commit: n Samples + Conf
     commit_min_samples: int = 3
-    commit_min_conf: float = 0.60        # avg-conf
-    commit_frame_conf_gate: float = 0.55 # einzel-frame gate
+    commit_min_conf: float = 0.60  # avg-conf
+    commit_frame_conf_gate: float = 0.55  # einzel-frame gate
 
-    # Cooldown: kurze Pause nach Commit (zeitbasiert)
+    # Cooldown: short rest after Commit (time based)
     cooldown_s: float = 0.5  # <-- HIER: cooldown (0.5s)
 
-    # Klassifikationsrate (max. Predictions/s)
+    # Classification rate (max. Predictions/s)
     # 0.075 ≈ 13.3/s, 0.05 ≈ 20/s
     pred_min_interval_s: float = 0.075
 
-    # Wie oft Telemetry (UI) aktualisiert werden soll
+    # How often telemetry (UI) should be updated
     telemetry_interval_s: float = 1.0 / 15.0  # 15 Hz
 
 
@@ -69,15 +69,39 @@ def _draw_phase_overlay(
     color = STATE_COLORS.get(state, (200, 200, 200))
     cv2.rectangle(frame_bgr, (10, 10), (420, 140), color, -1)
 
-    cv2.putText(frame_bgr, f"STATE: {state}", (22, 45),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 0, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame_bgr, f"sec_left: {seconds_left:.2f}", (22, 82),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(
+        frame_bgr,
+        f"STATE: {state}",
+        (22, 45),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.85,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame_bgr,
+        f"sec_left: {seconds_left:.2f}",
+        (22, 82),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA,
+    )
 
-    cv2.putText(frame_bgr, f"ARM: {armed_progress*100:.0f}%", (22, 118),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.putText(
+        frame_bgr,
+        f"ARM: {armed_progress*100:.0f}%",
+        (22, 118),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA,
+    )
 
-    # unten links live prediction
+    # live prediction bottom left
     cv2.rectangle(frame_bgr, (10, h - 60), (520, h - 10), (40, 40, 40), -1)
     cv2.putText(
         frame_bgr,
@@ -115,16 +139,20 @@ def run_live(
     camera_index: int = 0,
     show_window: bool = True,
     draw_phase_overlay: bool = True,
-    on_prediction: Optional[Callable[[str, float, np.ndarray, str, float], None]] = None,
+    on_prediction: Optional[
+        Callable[[str, float, np.ndarray, str, float], None]
+    ] = None,
     on_render: Optional[Callable[[np.ndarray, str, float], None]] = None,
-    on_telemetry: Optional[Callable[[str, str, float, float, float, bool], None]] = None,
+    on_telemetry: Optional[
+        Callable[[str, str, float, float, float, bool], None]
+    ] = None,
     cfg: LiveConfig = LiveConfig(),
 ):
     """
-    on_prediction: wird NUR bei COMMIT ausgelöst (echte Geste fürs Spiel)
-    on_render: wird jeden Frame aufgerufen (für Webcam-Embedding)
-    on_telemetry: wird regelmäßig aufgerufen (für Balken + Status UI)
-      signature: (state, live_label, live_conf, seconds_left, armed_progress, armed_ready)
+    on_prediction: is triggered ONLY on COMMIT (real gesture for the game)
+    on_render: is called every frame (for webcam embedding)
+    on_telemetry: is called regularly (for bars + status UI)
+    signature: (state, live_label, live_conf, seconds_left, armed_progress, armed_ready)
     """
     model, le = load_model_and_encoder()
 
@@ -140,7 +168,7 @@ def run_live(
     if not cap.isOpened():
         raise RuntimeError(f"Kamera {camera_index} konnte nicht geöffnet werden.")
 
-    # Optional: FPS setzen (kann ignoriert werden je nach Kamera/OS)
+    # Optional: set FPS
     cap.set(cv2.CAP_PROP_FPS, 30)
 
     window: List[np.ndarray] = []
@@ -152,13 +180,13 @@ def run_live(
 
     live_label, live_conf = "", 0.0
 
-    # Arming (zeitbasiert)
+    # Arming (time based)
     neutral_hold_t = 0.0
 
-    # Cooldown (zeitbasiert)
+    # Cooldown (time based)
     cooldown_until = 0.0
 
-    # Ende-Detection (frames)
+    # End detection (frames)
     end_counter = 0
 
     # Telemetry throttle
@@ -187,7 +215,9 @@ def run_live(
             results = hands.process(rgb)
 
             if results.multi_hand_landmarks:
-                mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
+                mp_draw.draw_landmarks(
+                    frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS
+                )
 
             lm_list = _extract_lm_list(results)
             x63 = None
@@ -214,7 +244,10 @@ def run_live(
             # -----------------------------
             if state == "IDLE":
                 # neutral hold time accumulates only if confidently neutral
-                if live_label == cfg.neutral_label and live_conf >= cfg.neutral_min_conf:
+                if (
+                    live_label == cfg.neutral_label
+                    and live_conf >= cfg.neutral_min_conf
+                ):
                     neutral_hold_t += dt
                 else:
                     neutral_hold_t = 0.0
@@ -230,13 +263,16 @@ def run_live(
                     end_counter = 0
 
             elif state == "ARMED":
-                # Balken bleibt voll bis Bewegung startet
+                # bar remains full until movement starts
                 armed_progress = 1.0
                 armed_ready = True
                 seconds_left = 0.0
 
-                # sobald neutral verlassen -> RECORDING
-                if not (live_label == cfg.neutral_label and live_conf >= cfg.neutral_min_conf):
+                # as soon as neutral is left -> RECORDING
+                if not (
+                    live_label == cfg.neutral_label
+                    and live_conf >= cfg.neutral_min_conf
+                ):
                     state = "RECORDING"
                     neutral_hold_t = 0.0
                     rec_frames = []
@@ -244,11 +280,11 @@ def run_live(
                     end_counter = 0
 
             elif state == "RECORDING":
-                # sammeln
+                # collec
                 if x63 is not None:
                     rec_frames.append(x63)
 
-                # early commit nur für echte Gesten
+                # early commit only for real gestures
                 if (
                     live_label
                     and live_label not in (cfg.garbage_label, cfg.neutral_label)
@@ -257,8 +293,12 @@ def run_live(
                     commit_agg.feed(live_label, live_conf, now)
 
                 maj_label, maj_conf, maj_n = commit_agg.result()
-                if maj_label is not None and maj_n >= cfg.commit_min_samples and maj_conf >= cfg.commit_min_conf:
-                    # COMMIT (genau 1 Geste)
+                if (
+                    maj_label is not None
+                    and maj_n >= cfg.commit_min_samples
+                    and maj_conf >= cfg.commit_min_conf
+                ):
+                    # COMMIT (exactly 1 gesture)
                     if on_prediction is not None:
                         on_prediction(maj_label, float(maj_conf), frame, "COMMIT", 0.0)
 
@@ -269,22 +309,33 @@ def run_live(
                     commit_agg.reset()
 
                 else:
-                    # Ende: zurück zu neutral stabil oder max frames
-                    if live_label == cfg.neutral_label and live_conf >= cfg.neutral_min_conf:
+                    # end: back to neutral stable or max frames
+                    if (
+                        live_label == cfg.neutral_label
+                        and live_conf >= cfg.neutral_min_conf
+                    ):
                         end_counter += 1
                     else:
                         end_counter = 0
 
-                    if len(rec_frames) >= cfg.record_max_frames or end_counter >= cfg.end_hold_frames:
+                    if (
+                        len(rec_frames) >= cfg.record_max_frames
+                        or end_counter >= cfg.end_hold_frames
+                    ):
                         # Fallback segment classify
                         if len(rec_frames) >= cfg.record_min_frames:
                             seg = np.asarray(rec_frames, dtype=np.float32)
                             seg12 = _resample_to_T(seg, cfg.window_size)
                             seg_label, seg_conf = classify_from_window(seg12)
 
-                            if seg_label not in (cfg.garbage_label, cfg.neutral_label) and seg_conf >= cfg.commit_min_conf:
+                            if (
+                                seg_label not in (cfg.garbage_label, cfg.neutral_label)
+                                and seg_conf >= cfg.commit_min_conf
+                            ):
                                 if on_prediction is not None:
-                                    on_prediction(seg_label, float(seg_conf), frame, "COMMIT", 0.0)
+                                    on_prediction(
+                                        seg_label, float(seg_conf), frame, "COMMIT", 0.0
+                                    )
 
                         state = "COOLDOWN"
                         cooldown_until = now + cfg.cooldown_s
@@ -320,7 +371,9 @@ def run_live(
                     )
 
             if draw_phase_overlay:
-                _draw_phase_overlay(frame, state, seconds_left, live_label, live_conf, armed_progress)
+                _draw_phase_overlay(
+                    frame, state, seconds_left, live_label, live_conf, armed_progress
+                )
 
             if show_window:
                 cv2.imshow("Gesture Live", frame)

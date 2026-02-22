@@ -99,7 +99,9 @@ class GestureSpotterFSM:
                 self.end_counter = 0
 
             T = len(self.buffer)
-            should_end = (self.end_counter >= self.cfg.end_frames) or (T >= self.cfg.max_gesture_frames)
+            should_end = (self.end_counter >= self.cfg.end_frames) or (
+                T >= self.cfg.max_gesture_frames
+            )
 
             if should_end:
                 seg = np.asarray(self.buffer, dtype=np.float32)

@@ -21,9 +21,9 @@ class TelemetryEvent:
 
 class TelemetryStore:
     """
-    Thread-safe In-Memory Telemetrie:
-    - current: letzter Zustand + live prediction + arming progress
-    - history: letzte N committed Events
+    Thread-safe in-memory telemetry:
+    - Current: Last state + live prediction + arming progress
+    - History: Last N committed events
     """
 
     def __init__(self, max_history: int = 25):
@@ -96,7 +96,9 @@ class TelemetryStore:
                     "armed_ready": self._armed_ready,
                     "last_update_t": self._last_update_t,
                 },
-                "history": [asdict(e) for e in list(self._history)[::-1]],  # newest first
+                "history": [
+                    asdict(e) for e in list(self._history)[::-1]
+                ],  # newest first
             }
 
 

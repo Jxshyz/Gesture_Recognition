@@ -17,8 +17,8 @@ from utils.model_io import load_model_and_encoder, predict_feat189, decode_label
 @dataclass
 class PredictorConfig:
     camera_index: int = 0
-    window_size: int = 12                 # muss wie Training sein
-    pred_min_interval_s: float = 0.06     # ~16-17 Predictions/s (flüssig)
+    window_size: int = 12  # has to be like in training
+    pred_min_interval_s: float = 0.06  # ~16-17 Predictions/s (smooth)
     min_det_conf: float = 0.6
     min_track_conf: float = 0.6
     flip: bool = True
@@ -32,8 +32,8 @@ def run_live_predictions(
     cfg: PredictorConfig = PredictorConfig(),
 ) -> None:
     """
-    Ruft on_pred(label, conf, ts) in eurer gewünschten Rate auf.
-    Keine FSM hier – nur "Pipeline liefert pro Frame pred_label".
+    Call `on_pred(label, conf, ts)` at your desired rate.
+    No FSM here – just "Pipeline delivers pred_label per frame".
     """
     model, le = load_model_and_encoder()
 
@@ -77,7 +77,9 @@ def run_live_predictions(
             results = hands.process(rgb)
 
             if cfg.draw_landmarks and results.multi_hand_landmarks:
-                mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS)
+                mp_draw.draw_landmarks(
+                    frame, results.multi_hand_landmarks[0], mp_hands.HAND_CONNECTIONS
+                )
 
             lm_list = extract_lm_list(results)
             if lm_list is not None:

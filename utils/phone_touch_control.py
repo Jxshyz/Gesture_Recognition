@@ -17,21 +17,23 @@ class TouchConfig:
     serial: Optional[str] = None
     adb_path: Optional[str] = None
 
-    # Wiederholrate (wenn du Taste gedrückt hältst / schnell drückst)
+    # Repeat rate (when you hold down a button / press quickly)
     repeat_min_interval_s: float = 0.08
 
-    # Swipe-Settings (werden dynamisch aus Screen-Size berechnet)
-    anchor_x_ratio: float = 0.50   # Mittelpunkt X (0..1)
-    anchor_y_ratio: float = 0.75   # Mittelpunkt Y (0..1) -> oft gut: eher unten im Spielfeld
-    swipe_dx_ratio: float = 0.18   # Swipe-Weite horizontal
-    swipe_dy_ratio: float = 0.18   # Swipe-Weite vertikal
-    swipe_duration_ms: int = 80    # 60-120ms ist meist gut
+    # Swipe settings (dynamically calculated from screen size)
+    anchor_x_ratio: float = 0.50  # Mittelpunkt X (0..1)
+    anchor_y_ratio: float = (
+        0.75  # Center point Y (0..1) -> often good: rather low in the playing field
+    )
+    swipe_dx_ratio: float = 0.18  # Swipe width horizontal
+    swipe_dy_ratio: float = 0.18  # Swipe width vertical
+    swipe_duration_ms: int = 80  # 60-120ms is good in most places
 
-    # Tap (z.B. Rotate)
+    # Tap (e.g. Rotate)
     tap_x_ratio: float = 0.50
     tap_y_ratio: float = 0.55
 
-    # Feinjustierung während Laufzeit (WASD verschiebt Anchor)
+    # Fine-tuning during runtime (WASD moves anchor)
     nudge_px: int = 40
 
 
@@ -42,7 +44,9 @@ def _find_adb(adb_path: Optional[str] = None) -> str:
     for env in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
         root = os.environ.get(env)
         if root:
-            cand = os.path.join(root, "platform-tools", "adb.exe" if os.name == "nt" else "adb")
+            cand = os.path.join(
+                root, "platform-tools", "adb.exe" if os.name == "nt" else "adb"
+            )
             if os.path.exists(cand):
                 return cand
 
@@ -106,9 +110,23 @@ def adb_tap(adb: str, serial: str, x: int, y: int) -> None:
     )
 
 
-def adb_swipe(adb: str, serial: str, x1: int, y1: int, x2: int, y2: int, duration_ms: int) -> None:
+def adb_swipe(
+    adb: str, serial: str, x1: int, y1: int, x2: int, y2: int, duration_ms: int
+) -> None:
     subprocess.run(
-        [adb, "-s", serial, "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration_ms)],
+        [
+            adb,
+            "-s",
+            serial,
+            "shell",
+            "input",
+            "swipe",
+            str(x1),
+            str(y1),
+            str(x2),
+            str(y2),
+            str(duration_ms),
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -161,7 +179,9 @@ def run_phone_touch_control(cfg: TouchConfig = TouchConfig()) -> None:
     print("  T           -> Tap-Test sofort auslösen")
     print("  Esc         -> Quit")
     print("")
-    print("Tipp: Aktivier am Handy in Entwickleroptionen 'Berührungen anzeigen' + optional 'Zeigerposition',")
+    print(
+        "Tipp: Aktivier am Handy in Entwickleroptionen 'Berührungen anzeigen' + optional 'Zeigerposition',"
+    )
     print("      dann siehst du genau, wo die ADB-Taps/Swipes landen.\n")
 
     last_sent = {"LEFT": 0.0, "RIGHT": 0.0, "UP": 0.0, "DOWN": 0.0, "ENTER": 0.0}
@@ -178,13 +198,45 @@ def run_phone_touch_control(cfg: TouchConfig = TouchConfig()) -> None:
         last_sent[name] = now
 
         if name == "LEFT":
-            adb_swipe(adb, serial, anchor_x + dx, anchor_y, anchor_x - dx, anchor_y, cfg.swipe_duration_ms)
+            adb_swipe(
+                adb,
+                serial,
+                anchor_x + dx,
+                anchor_y,
+                anchor_x - dx,
+                anchor_y,
+                cfg.swipe_duration_ms,
+            )
         elif name == "RIGHT":
-            adb_swipe(adb, serial, anchor_x - dx, anchor_y, anchor_x + dx, anchor_y, cfg.swipe_duration_ms)
+            adb_swipe(
+                adb,
+                serial,
+                anchor_x - dx,
+                anchor_y,
+                anchor_x + dx,
+                anchor_y,
+                cfg.swipe_duration_ms,
+            )
         elif name == "UP":
-            adb_swipe(adb, serial, anchor_x, anchor_y + dy, anchor_x, anchor_y - dy, cfg.swipe_duration_ms)
+            adb_swipe(
+                adb,
+                serial,
+                anchor_x,
+                anchor_y + dy,
+                anchor_x,
+                anchor_y - dy,
+                cfg.swipe_duration_ms,
+            )
         elif name == "DOWN":
-            adb_swipe(adb, serial, anchor_x, anchor_y - dy, anchor_x, anchor_y + dy, cfg.swipe_duration_ms)
+            adb_swipe(
+                adb,
+                serial,
+                anchor_x,
+                anchor_y - dy,
+                anchor_x,
+                anchor_y + dy,
+                cfg.swipe_duration_ms,
+            )
 
     def _send_tap():
         now = time.time()

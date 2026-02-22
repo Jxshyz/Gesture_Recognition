@@ -12,25 +12,27 @@ with open("trained_gbm.pkl", "rb") as f:
     gbm = saved["model"]
     scaler = saved["scaler"]
 
+
 class FeatureInput(BaseModel):
     features: Union[List[float], List[List[float]]]
+
 
 @app.post("/predict")
 async def predict(data: FeatureInput):
     features = np.array(data.features)
 
-    # Einzelner Frame → 2D Array
+    # Single Frame → 2D Array
     if features.ndim == 1:
         features = features.reshape(1, -1)
     elif features.ndim != 2:
         raise ValueError("Features must be 1D or 2D array")
 
-    # Skalieren
+    # Scale
     features_scaled = scaler.transform(features)
 
-    # Vorhersage
+    # Prediction
     preds = gbm.predict(features_scaled)
-    # Optional: Wahrscheinlichkeiten
+    # Optional: Probabilities
     probs = gbm.predict_proba(features_scaled)
 
     return {"gesture": preds.tolist(), "probabilities": probs.tolist()}
