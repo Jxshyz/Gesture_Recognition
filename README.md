@@ -1,67 +1,67 @@
 # Gesture Recognition (MediaPipe)
 
-Ein Projekt zur **Erkennung von Handgesten** mit **MediaPipe Hands**.  
-Phase 1: Erfassung von Hand-Landmarks + Metadaten.  
-Phase 2: Training eines **NN** (Fallback: **HMM**) zur **Echtzeit-Klassifikation** und **Steuerung** einer Anwendung (z. B. Tetris).
+A project for **hand gesture recognition** using **MediaPipe Hands**.  
+Phase 1: Capture hand landmarks + metadata.  
+Phase 2: Train a **NN** (fallback: **HMM**) for **real-time classification** and **application control** (e.g., Tetris).
 
 ---
 
-## Inhaltsverzeichnis
+## Table of Contents
 
 - [Features](#features)
-- [Voraussetzungen](#voraussetzungen)
+- [Requirements](#requirements)
 - [Installation](#installation)
-- [Nutzung](#nutzung)
-  - [1) Kamera testen](#1-kamera-testen)
-  - [2) Daten aufnehmen](#2-daten-aufnehmen)
-- [Datensatz / Format](#datensatz--format)
-- [Lizenz / Datenschutz](#lizenz--datenschutz)
-- [Quick-Reference (Cheatsheet)](#quick-reference-cheatsheet)
+- [Usage](#usage)
+  - [1) Test Camera](#1-test-camera)
+  - [2) Record Data](#2-record-data)
+- [Dataset / Format](#dataset--format)
+- [License / Privacy](#license--privacy)
+- [Quick Reference (Cheatsheet)](#quick-reference-cheatsheet)
 
 ---
 
 ## Features
 
-- Live-Handtracking (21 Landmark-Punkte) via **MediaPipe**
-- **Kameratest** (`test_cam`)
-- **Datenerfassung** mit visuellem Takt:
-  - Viereck oben links: **Rot** → keine Geste, **Grün** → Geste ausführen
-  - Start: **5 s Rot**, danach **1 s Grün / 2 s Rot** im Wechsel
-  - **70** grüne Phasen → Aufnahme endet automatisch (≈ **215 s**)
-  - Unter dem Viereck steht die aktuell gewünschte Geste (Label)
+- Live hand tracking (21 landmark points) via **MediaPipe**
+- **Camera test** (`test_cam`)
+- **Data recording** with visual timing:
+  - Top-left square: **Red** → no gesture, **Green** → perform gesture
+  - Start: **5 s Red**, then **1 s Green / 2 s Red** alternating
+  - **70** green phases → recording ends automatically (≈ **215 s**)
+  - The currently requested gesture (label) is displayed below the square
 
 ---
 
-## Voraussetzungen
+## Requirements
 
-- **Python** 3.9–3.11 (empfohlen: 3.10+)
-- Betriebssystem: Windows / macOS / Linux
-- Kamera/Webcam
+- **Python** 3.9–3.11 (recommended: 3.10+)
+- Operating System: Windows / macOS / Linux
+- Camera/Webcam
 
 ---
 
 ## Installation
 
 ```bash
-# (optional) in ein virtuelles Environment wechseln
+# (optional) create and activate a virtual environment
 python -m venv .venv
 # Windows: .\.venv\Scripts\activate
 # macOS/Linux: source .venv/bin/activate
 
-# Pakete installieren
+# install packages
 pip install --upgrade pip
 pip install mediapipe opencv-python numpy pandas
 ```
 
-> Hinweis: Falls `opencv-python` auf Linux Probleme macht, verwende ggf. `opencv-python-headless`.
+> Note: If `opencv-python` causes issues on Linux, use `opencv-python-headless` if necessary.
 
 ---
 
-## Nutzung
+## Usage
 
-### 1) Kamera testen
+### 1) Test Camera
 
-Zeigt das Kamerabild und zeichnet erkannte Hand-Landmarks.
+Displays the camera feed and draws detected hand landmarks.
 
 **Windows (PowerShell)**
 ```bash
@@ -73,89 +73,89 @@ python .\main.py test_cam
 python ./main.py test_cam
 ```
 
-Optional mit Kameraindex (z. B. externe Webcam):
+Optional with camera index (e.g., external webcam):
 ```bash
 python ./main.py test_cam 1
 ```
 
 ---
 
-### 2) Daten aufnehmen
+### 2) Record Data
 
-Startet den Rot/Grün-Takt, zeigt Timer & Gesten-Text, speichert Daten in `./data/Gestures_<Name>.pkl`.
+Starts the red/green timing sequence, shows timer & gesture text, saves data to `./data/Gestures_<Name>.pkl`.
 
 **Syntax**
 ```bash
 python ./main.py record_data <l|r> <Name> [camera_index]
 ```
 
-**Beispiele**
+**Examples**
 ```bash
-# Rechte Hand, Standardkamera
+# Right hand, default camera
 python ./main.py record_data r Joschua
 
-# Linke Hand, Kameraindex 1
+# Left hand, camera index 1
 python ./main.py record_data l Meric 1
 ```
 
-**Ablauf während der Aufnahme**
-- **Erste Phase:** 5 s **Rot** (keine Geste ausführen)  
-- **Danach 70 Zyklen:** 1 s **Grün** (Geste ausführen) + 2 s **Rot**
+**Recording Procedure**
+- **Initial phase:** 5 s **Red** (do not perform gesture)  
+- **Then 70 cycles:** 1 s **Green** (perform gesture) + 2 s **Red**
 
-**Gesten-Reihenfolge** (Blöcke à 10), angezeigt unter dem Viereck:
+**Gesture Order** (blocks of 10), displayed below the square:
 
-| Zyklen | Anzeige-Label         |
-|------:|------------------------|
-| 1–10  | Links wischen          |
-| 11–20 | Rechts wischen         |
-| 21–30 | Nach oben wischen      |
-| 31–40 | Nach unten wischen     |
-| 41–50 | Faust schließen        |
-| 51–60 | Hand links drehen      |
-| 61–70 | Hand rechts drehen     |
+| Cycles | Display Label        |
+|-------:|----------------------|
+| 1–10   | Swipe left           |
+| 11–20  | Swipe right          |
+| 21–30  | Swipe up             |
+| 31–40  | Swipe down           |
+| 41–50  | Close fist           |
+| 51–60  | Rotate hand left     |
+| 61–70  | Rotate hand right    |
 
-**Abbruch:** `q` beendet jederzeit manuell.
-
----
-
-## Datensatz / Format
-
-**Datei:** `./data/Gestures_<Name>.pkl` (Pandas-DataFrame)
-
-**Spalten**
-
-| Spalte         | Typ        | Beschreibung                                                                 |
-|----------------|------------|------------------------------------------------------------------------------|
-| `idx`          | Index/int  | Laufender Index (als DataFrame-Index gesetzt)                                |
-| `timestamp`    | float      | Sekunden (Monotonic/Wall-Clock, je nach Implementierung)                     |
-| `square_color` | string     | `"red"` oder `"green"`                                                       |
-| `label_text`   | string     | Mensch-lesbares Label (z. B. `"Links wischen"`)                              |
-| `hand`         | string     | `"links"` oder `"rechts"` (aus CLI-Argument `l|r`)                           |
-| `lm_0` … `lm_20` | tuple   | Jeweils `(x, y, z)` in **normalisierten Koordinaten** (MediaPipe 0..1, `z` relativ) |
-
-**Hinweise**
-- Frames **ohne erkannte Hand** → **NaN-Tuples** in `lm_*`, damit die Zeitreihe konsistent bleibt.
-- FPS & Session-Metadaten (Teilnehmer-ID, Hände-Info, Licht/Ort, Gerät) in separater **JSON-Meta** ablegen.
+**Abort:** Press `q` to stop manually at any time.
 
 ---
 
-## Lizenz / Datenschutz
+## Dataset / Format
 
-- Speicherung nur technischer Handdaten; **kein Video** (wenn möglich)
-- Einwilligung der Teilnehmenden, Anonymisierung (IDs), Zweckbindung
+**File:** `./data/Gestures_<Name>.pkl` (Pandas DataFrame)
+
+**Columns**
+
+| Column          | Type        | Description                                                                 |
+|-----------------|------------|-----------------------------------------------------------------------------|
+| `idx`           | Index/int  | Sequential index (set as DataFrame index)                                   |
+| `timestamp`     | float      | Seconds (monotonic/wall-clock, depending on implementation)                  |
+| `square_color`  | string     | `"red"` or `"green"`                                                         |
+| `label_text`    | string     | Human-readable label (e.g., `"Swipe left"`)                                  |
+| `hand`          | string     | `"left"` or `"right"` (from CLI argument `l|r`)                              |
+| `lm_0` … `lm_20` | tuple     | Each `(x, y, z)` in **normalized coordinates** (MediaPipe 0..1, `z` relative) |
+
+**Notes**
+- Frames **without detected hand** → **NaN tuples** in `lm_*` to keep the time series consistent.
+- FPS & session metadata (participant ID, hand info, lighting/location, device) should be stored in a separate **JSON meta file**.
 
 ---
 
-### Quick-Reference (Cheatsheet)
+## License / Privacy
+
+- Store technical hand data only; **no video** (if possible)
+- Participant consent, anonymization (IDs), purpose limitation
+
+---
+
+## Quick Reference (Cheatsheet)
 
 ```text
-# Kamera
+# Camera
 python ./main.py test_cam [camera_index]
 
-# Aufnahme
+# Recording
 python ./main.py record_data <l|r> <Name> [camera_index]
 
-# Ablauf
-5s Rot  → (1s Grün + 2s Rot) × 70 → Auto-Stopp
-q = Abbruch
+# Procedure
+5s Red → (1s Green + 2s Red) × 70 → Auto-stop
+q = abort
 ```
