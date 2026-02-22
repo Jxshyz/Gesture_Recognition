@@ -1,3 +1,21 @@
+"""
+ADB-based Android device controller.
+
+This module provides a lightweight wrapper around:
+
+- adb (Android Debug Bridge)
+- optional uiautomator2 (for coherent touch events)
+
+It supports:
+
+- Device discovery and connection
+- Key events
+- Tap and swipe gestures
+- True drag gestures (with uiautomator2)
+- Display size and orientation polling
+
+Designed for gesture-driven Android interaction.
+"""
 # utils/phone_controller.py
 from __future__ import annotations
 
@@ -11,12 +29,35 @@ from typing import Optional, Tuple, List, Any
 
 
 def _run(cmd: List[str], timeout: float = 8.0) -> Tuple[int, str]:
+    """
+    Execute a subprocess command and capture output.
+
+    Parameters:
+        cmd (List[str]): Command and arguments.
+        timeout (float): Maximum execution time in seconds.
+
+    Returns:
+        Tuple[int, str]:
+            (return_code, combined_stdout_stderr)
+    """
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     out = (p.stdout or "") + (p.stderr or "")
     return p.returncode, out
 
 
 def _find_adb() -> str:
+    """
+    Locate the adb executable.
+
+    Search order:
+        1. Environment variables (ADB_PATH, ADB)
+        2. ANDROID_SDK_ROOT / ANDROID_HOME
+        3. Default Windows SDK location
+        4. Fallback: assume 'adb' is in PATH
+
+    Returns:
+        str: Path to adb executable.
+    """
     for k in ("ADB_PATH", "ADB"):
         v = os.environ.get(k)
         if v and Path(v).exists():
@@ -51,6 +92,26 @@ def _find_adb() -> str:
 
 @dataclass
 class AndroidDevice:
+    """
+    Android device abstraction via adb and optional uiautomator2.
+
+    Provides:
+
+        - Basic ADB input actions (tap, swipe, keyevent)
+        - Optional coherent touch events via uiautomator2
+        - Drag gestures
+        - Screen size and rotation handling
+        - Orientation-aware coordinate space
+
+    Attributes:
+        adb_path (str): Path to adb executable.
+        serial (str): Device serial identifier.
+        input_w / input_h (int): Current logical input resolution.
+        rotation (int): Display rotation (0–3).
+        phys_w / phys_h (int): Physical display resolution.
+        u2 (Any): Optional uiautomator2 device instance.
+    """
+
     adb_path: str
     serial: str
 
@@ -74,6 +135,33 @@ class AndroidDevice:
         serial: Optional[str] = None,
         enable_u2: bool = False,
     ) -> "AndroidDevice":
+        """
+        Connect to an Android device via adb.
+
+        Steps:
+            - Locate adb executable
+            - Parse 'adb devices' output
+            - Select appropriate device
+            - Query display information
+            - Optionally connect via uiautomator2
+
+        Parameters:
+            adb_path (Optional[str]):
+                Explicit adb path (otherwise auto-detected).
+
+            serial (Optional[str]):
+                Specific device serial.
+
+            enable_u2 (bool):
+                If True, attempt uiautomator2 connection
+                for coherent touch gestures.
+
+        Returns:
+            AndroidDevice: Connected device instance.
+
+        Raises:
+            RuntimeError: If no suitable device is found.
+        """
         adb = adb_path or _find_adb()
 
         rc, out = _run([adb, "devices"])
@@ -138,6 +226,19 @@ class AndroidDevice:
         return [self.adb_path, "-s", self.serial]
 
     def shell(self, *args: str, timeout: float = 8.0) -> str:
+        """
+        Execute an adb shell command.
+
+        Parameters:
+            *args (str): Shell command arguments.
+            timeout (float): Command timeout in seconds.
+
+        Returns:
+            str: Command output.
+
+        Raises:
+            RuntimeError: If the command fails.
+        """
         rc, out = _run(self._base() + ["shell", *args], timeout=timeout)
         if rc != 0:
             raise RuntimeError(f"adb shell {' '.join(args)} failed:\n{out}")
@@ -205,9 +306,19 @@ class AndroidDevice:
         steps: int = 12,
     ) -> None:
         """
-        Simulates a "finger held" drag.
-        - With uiautomator2: DOWN/MOVE/UP (coherent)
-        - Fallback: adb input swipe (usually works, but isn't always 100% 'hold')
+        Perform a drag gesture.
+
+        Behavior:
+            - If uiautomator2 is available:
+                  Simulates coherent DOWN/MOVE/UP sequence.
+            - Otherwise:
+                  Falls back to adb 'input swipe'.
+
+        Parameters:
+            x1, y1 (int): Start coordinates.
+            x2, y2 (int): End coordinates.
+            duration_s (float): Total drag duration.
+            steps (int): Number of interpolation steps.
         """
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         steps = max(2, int(steps))
@@ -225,12 +336,23 @@ class AndroidDevice:
         else:
             self.swipe(x1, y1, x2, y2, duration_ms=int(duration_s * 1000))
 
-    # ----------------------------
-    # Display info
-    # ----------------------------
     def refresh_display_info(
         self, force: bool = False, min_interval_s: float = 0.8
     ) -> None:
+        """
+        Refresh device display information.
+
+        Queries:
+            - Physical resolution via 'wm size'
+            - Display rotation via 'dumpsys input'
+
+        Automatically adjusts input coordinate space for
+        landscape rotations.
+
+        Parameters:
+            force (bool): Force refresh regardless of timing.
+            min_interval_s (float): Minimum interval between refreshes.
+        """
         now = time.time()
         last = getattr(self, "_last_disp_refresh", 0.0)
         if (not force) and (now - last) < min_interval_s:

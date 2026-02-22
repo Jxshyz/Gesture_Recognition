@@ -1,3 +1,15 @@
+"""
+File-based high score storage for local game sessions.
+
+This module provides a thread-safe high score store that:
+
+- Maintains exactly one (maximum) score per user
+- Stores each user in a separate JSON file
+- Uses case-insensitive user keys
+- Performs atomic file writes to prevent corruption
+
+Intended for lightweight local game backends.
+"""
 # utils/highscore_store.py
 from __future__ import annotations
 
@@ -12,6 +24,23 @@ from typing import Dict, List, Tuple
 
 @dataclass(frozen=True)
 class HighscoreEntry:
+    """
+    Immutable data structure representing a single user's high score.
+
+    Attributes:
+        key (str):
+            Normalized (case-insensitive) user identifier.
+
+        name (str):
+            Display name of the user.
+
+        score (int):
+            Best recorded score for the user.
+
+        updated_at (float):
+            Unix timestamp of the last update.
+    """
+
     key: str
     name: str
     score: int
@@ -32,10 +61,33 @@ class HighscoreStore:
 
     @staticmethod
     def normalize_name(name: str) -> str:
+        """
+        Normalize a user name for internal key usage.
+
+        Performs trimming and case-insensitive normalization.
+
+        Parameters:
+            name (str): Raw user input name.
+
+        Returns:
+            str: Normalized key.
+        """
         return (name or "").strip().casefold()
 
     @staticmethod
     def _safe_filename(key: str) -> str:
+        """
+        Convert a user key into a filesystem-safe filename.
+
+        Non-alphanumeric characters (except '_' and '-') are replaced.
+        Empty results default to "player".
+
+        Parameters:
+            key (str): Normalized user key.
+
+        Returns:
+            str: Safe filename component.
+        """
         key = (key or "").strip().casefold()
         key = re.sub(r"[^a-z0-9_-]+", "_", key)
         key = key.strip("_")
@@ -67,8 +119,22 @@ class HighscoreStore:
 
     def update_best(self, name: str, score: int) -> Tuple[bool, int]:
         """
-        Update only if score > previous best score
-        Return: (updated?, best_after)
+        Update the stored high score for a user.
+
+        The score is only updated if the new score is strictly
+        greater than the previous best.
+
+        If the score is not improved, the stored display name
+        may still be updated to reflect formatting changes.
+
+        Parameters:
+            name (str): Display name of the user.
+            score (int): New score value.
+
+        Returns:
+            Tuple[bool, int]:
+                - updated (bool): True if a new high score was written.
+                - best_after (int): The user's best score after the operation.
         """
         disp_name = (name or "").strip() or "Player"
         key = self.normalize_name(disp_name) or "player"
@@ -109,6 +175,20 @@ class HighscoreStore:
             return True, score
 
     def list_highscores(self) -> List[Dict]:
+        """
+        Return all stored high scores sorted for leaderboard display.
+
+        Sorting order:
+            1. Descending score
+            2. Ascending name (case-insensitive)
+
+        Returns:
+            List[Dict]:
+                List of dictionaries containing:
+                    - name
+                    - score
+                    - updated_at
+        """
         entries: List[HighscoreEntry] = []
         for p in self.root_dir.glob("*.json"):
             e = self._read_entry_file(p)

@@ -1,3 +1,32 @@
+"""
+Interactive data collection tool for gesture recognition.
+
+This module records time-series hand landmark data using MediaPipe
+and stores gesture samples as compressed NumPy files (.npz).
+
+Purpose:
+    - Create labeled training data for the gesture classifier.
+    - Ensure consistent temporal length via resampling.
+    - Capture multiple samples per gesture in a controlled workflow.
+
+Output structure:
+    <out_dir>/<user>/<Left|Right>/<gesture>/*.npz
+
+Each .npz file contains:
+    seq    -> raw landmark sequence (N, 63)
+    seq12  -> resampled sequence (window_size, 63)
+    label  -> gesture name
+    name   -> subject identifier
+    hand   -> "Left" or "Right"
+    fps    -> target sampling rate
+    record_s / cooldown_s -> timing metadata
+    ts     -> timestamp
+
+Designed for:
+    - Supervised learning pipelines
+    - Feature extraction via window_features()
+    - Model training with fixed-length temporal inputs
+"""
 # utils/record_data.py
 from __future__ import annotations
 
@@ -15,6 +44,23 @@ from utils.feature_extractor import normalize_landmarks
 
 @dataclass
 class RecordConfig:
+    """
+    Configuration for gesture recording.
+
+    Attributes:
+        fps (float): Target sampling rate for landmark capture.
+        record_s (float): Duration of active recording per sample (seconds).
+        cooldown_s (float): Pause before each recording starts (seconds).
+
+        window_size (int): Target temporal length (T) for resampled sequence.
+        samples_per_gesture (int): Number of recordings per gesture.
+
+        min_det_conf (float): MediaPipe detection confidence threshold.
+        min_track_conf (float): MediaPipe tracking confidence threshold.
+
+        out_dir (Path): Root directory for saved recordings.
+    """
+
     fps: float = 30.0
     record_s: float = 2.0
     cooldown_s: float = 2.0
@@ -28,7 +74,6 @@ class RecordConfig:
     out_dir: Path = Path("./data/recordings")
 
 
-# ❌ Entfernt: swipe_up, rotate_right, neutral_peace, garbage
 GESTURE_ORDER: List[str] = [
     "swipe_left",
     "swipe_right",
@@ -41,6 +86,21 @@ GESTURE_ORDER: List[str] = [
 
 
 def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
+    """
+    Resample a temporal landmark sequence to fixed length T.
+
+    Parameters:
+        seq (np.ndarray): Shape (N, 63), raw sequence.
+        T (int): Target temporal length.
+
+    Returns:
+        np.ndarray: Shape (T, 63), linearly interpolated sequence.
+
+    Notes:
+        - If N == T: returned unchanged (float32).
+        - If N < T or N > T: time axis is interpolated.
+        - If N == 0: returns zero array of shape (T, D).
+    """
     N, D = seq.shape
     if N <= 0:
         return np.zeros((T, D), dtype=np.float32)
@@ -58,6 +118,22 @@ def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
 def _pick_hand(
     results, desired_hand: str
 ) -> Optional[List[Tuple[float, float, float]]]:
+    """
+    Selects landmarks of the desired hand (Left/Right).
+
+    Parameters:
+        results: MediaPipe Hands result object.
+        desired_hand (str): "Left" or "Right".
+
+    Returns:
+        List[(x,y,z)] of 21 landmarks if found,
+        otherwise None.
+
+    Behavior:
+        - If handedness classification matches desired hand,
+          returns that hand.
+        - Otherwise falls back to first detected hand.
+    """
     if not results.multi_hand_landmarks:
         return None
 
@@ -81,6 +157,14 @@ def _draw_ui_box(
     subtitle: str,
     timer_text: str,
 ):
+    """
+    Draws a UI info box in the top-left corner of the frame.
+
+    Used for:
+        - Cooldown visualization
+        - Active recording feedback
+        - Gesture/sample progress
+    """
     x0, y0 = 20, 20
     w, h = 360, 170
 
@@ -141,6 +225,42 @@ def run_record(
     hand: str = "Right",
     cfg: RecordConfig = RecordConfig(),
 ):
+    """
+    Interactive recording tool for gesture dataset creation.
+
+    Parameters:
+        gesture_arg (str):
+            Single gesture name or "all" to record full GESTURE_ORDER.
+        name (str):
+            User / subject name (used in folder structure).
+        camera_index (int):
+            OpenCV camera index.
+        hand (str):
+            "Left" or "Right".
+        cfg (RecordConfig):
+            Recording configuration.
+
+    Workflow:
+        - For each gesture:
+            1. Cooldown phase (visual preparation).
+            2. Active recording phase (fixed duration).
+            3. Landmarks sampled at target FPS.
+            4. Sequence resampled to fixed window_size.
+            5. Saved as compressed .npz file.
+
+    Saved Data (.npz):
+        seq   -> raw sequence (N,63)
+        seq12 -> resampled sequence (window_size,63)
+        label -> gesture label
+        name  -> subject name
+        hand  -> Left/Right
+        metadata (fps, durations, timestamp)
+
+    Controls:
+        q -> quit all
+        s -> skip current sample
+        n -> skip remaining samples of gesture
+    """
     gesture_arg = gesture_arg.lower().strip()
     desired_hand = "Right" if str(hand).lower().startswith("r") else "Left"
 

@@ -1,3 +1,17 @@
+"""
+Lightweight real-time gesture prediction pipeline.
+
+This module provides a minimal live inference loop that:
+
+- Captures webcam frames
+- Extracts MediaPipe hand landmarks
+- Builds sliding window features (189-dim)
+- Runs model inference
+- Emits throttled predictions via callback
+
+No state machine or commit logic is included.
+Designed to be composed with higher-level controllers (e.g. FSM).
+"""
 # utils/live_predictor.py
 from __future__ import annotations
 
@@ -16,6 +30,37 @@ from utils.model_io import load_model_and_encoder, predict_feat189, decode_label
 
 @dataclass
 class PredictorConfig:
+    """
+    Configuration parameters for the live predictor.
+
+    Attributes:
+        camera_index (int):
+            Index of the webcam device.
+
+        window_size (int):
+            Number of frames used for sliding window classification.
+            Must match the training configuration.
+
+        pred_min_interval_s (float):
+            Minimum time interval between emitted predictions
+            (rate limiting / smoothing).
+
+        min_det_conf (float):
+            Minimum detection confidence for MediaPipe.
+
+        min_track_conf (float):
+            Minimum tracking confidence for MediaPipe.
+
+        flip (bool):
+            Whether to horizontally flip the webcam frame.
+
+        draw_landmarks (bool):
+            Whether to draw detected landmarks onto the frame.
+
+        show_window (bool):
+            Whether to display the OpenCV window.
+    """
+
     camera_index: int = 0
     window_size: int = 12  # has to be like in training
     pred_min_interval_s: float = 0.06  # ~16-17 Predictions/s (smooth)
@@ -32,8 +77,41 @@ def run_live_predictions(
     cfg: PredictorConfig = PredictorConfig(),
 ) -> None:
     """
-    Call `on_pred(label, conf, ts)` at your desired rate.
-    No FSM here – just "Pipeline delivers pred_label per frame".
+    Run a real-time gesture prediction loop without FSM logic.
+
+    Pipeline:
+        1. Capture webcam frame
+        2. Extract MediaPipe landmarks
+        3. Normalize to 63-dim feature vector
+        4. Maintain sliding window (window_size frames)
+        5. Generate 189-dim temporal features
+        6. Run model inference
+        7. Throttle predictions via PredictionAggregator
+        8. Emit predictions via callback
+
+    The function continuously calls:
+
+        on_pred(label, conf, timestamp)
+            When a prediction passes the rate limiter.
+
+        on_frame(frame)
+            Every frame (optional), useful for streaming or visualization.
+
+    No state machine, commit logic, or segmentation is performed here.
+    This function delivers raw model predictions at a controlled rate.
+
+    Parameters:
+        on_pred (Callable):
+            Callback receiving (label, confidence, timestamp).
+
+        on_frame (Optional[Callable]):
+            Optional callback receiving the current frame.
+
+        cfg (PredictorConfig):
+            Runtime configuration parameters.
+
+    Returns:
+        None
     """
     model, le = load_model_and_encoder()
 
@@ -53,12 +131,39 @@ def run_live_predictions(
     pred_agg = PredictionAggregator(min_interval_s=cfg.pred_min_interval_s)
 
     def extract_lm_list(results) -> Optional[List[Tuple[float, float, float]]]:
+        """
+        Extract normalized landmark coordinates from MediaPipe results.
+
+        Parameters:
+            results:
+                MediaPipe inference result object.
+
+        Returns:
+            Optional[List[Tuple[float, float, float]]]:
+                List of 21 (x, y, z) normalized coordinates if a hand
+                is detected, otherwise None.
+        """
         if not results.multi_hand_landmarks:
             return None
         hand = results.multi_hand_landmarks[0]
         return [(p.x, p.y, p.z) for p in hand.landmark]
 
     def classify(win12: np.ndarray) -> Tuple[str, float]:
+        """
+        Perform model inference on a fixed-length landmark window.
+
+        The input window must have shape (window_size, 63).
+        Temporal features (189-dim) are computed and passed to
+        the trained classifier.
+
+        Parameters:
+            win12 (np.ndarray):
+                Sliding window array of shape (T, 63).
+
+        Returns:
+            Tuple[str, float]:
+                Predicted label and associated confidence score.
+        """
         feat189 = window_features(win12)
         y_enc, conf = predict_feat189(model, feat189)
         label = decode_label(y_enc, le)

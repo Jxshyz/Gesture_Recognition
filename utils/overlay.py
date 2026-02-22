@@ -1,3 +1,17 @@
+"""
+Transparent UDP-driven overlay window for fingertip visualization.
+
+This module implements a PyQt5 overlay window that:
+
+- Stays on top of all other windows
+- Receives normalized (x, y) coordinates via UDP
+- Draws a smoothed red dot at the received position
+- Supports resizing via edge handles
+- Allows click-through mode
+- Saves and loads window calibration (position + size)
+
+Intended for gesture-based cursor or game control visualization.
+"""
 # utils/overlay.py
 import sys
 import os
@@ -14,10 +28,14 @@ from PyQt5.QtCore import Qt, QPoint, pyqtSignal
 CALIB_FILE = os.path.join(os.getcwd(), "overlay_calibration.json")
 
 
-# =========================
-# Resize-Handle Widget
-# =========================
 class ResizeHandle(QWidget):
+    """
+    Interactive resize handle attached to the overlay edges.
+
+    Enables resizing of the parent window by dragging
+    the corresponding side (left, right, top, bottom).
+    """
+
     def __init__(self, parent, direction):
         super().__init__(parent)
         self.direction = direction
@@ -62,10 +80,19 @@ class ResizeHandle(QWidget):
         self.start_geom = None
 
 
-# =========================
-# Overlay Window
-# =========================
 class Overlay(QWidget):
+    """
+    Frameless, always-on-top overlay window with UDP position input.
+
+    Features:
+        - Transparent background
+        - Smoothed dot rendering
+        - Configurable resize handles
+        - Click-through toggle (F7)
+        - Calibration save/load (F9)
+        - Threaded UDP listener
+    """
+
     HANDLE_SIZE = 40
     DRAW_BORDER = 4
 
@@ -115,10 +142,10 @@ class Overlay(QWidget):
         # UDP
         self.start_udp_listener(5005)
 
-    # -------------------------
-    # Calibration save/load
-    # -------------------------
     def save_calibration(self):
+        """
+        Save current window position and size to a JSON file.
+        """
         g = self.geometry()
         data = {"x": g.x(), "y": g.y(), "w": g.width(), "h": g.height()}
         try:
@@ -131,6 +158,10 @@ class Overlay(QWidget):
             print("[OVERLAY] Save calibration failed:", e)
 
     def load_calibration(self):
+        """
+        Load window position and size from calibration file,
+        if it exists.
+        """
         if not os.path.exists(CALIB_FILE):
             return
         try:
@@ -145,10 +176,13 @@ class Overlay(QWidget):
         except Exception as e:
             print("[OVERLAY] Load calibration failed:", e)
 
-    # -------------------------
-    # Click-through toggle
-    # -------------------------
     def toggle_click_through(self):
+        """
+        Toggle click-through mode.
+
+        When enabled, the overlay becomes transparent to mouse input
+        and does not intercept clicks.
+        """
         self.click_through = not self.click_through
 
         flags = self.windowFlags()
@@ -162,10 +196,14 @@ class Overlay(QWidget):
 
         self.show()  # required after changing flags
 
-    # =========================
-    # UDP
-    # =========================
     def start_udp_listener(self, port):
+        """
+        Start a background UDP listener thread.
+
+        The listener receives normalized (x, y) coordinates and emits
+        a Qt signal for thread-safe UI updates.
+        """
+
         def listen():
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.bind(("0.0.0.0", port))
@@ -182,6 +220,15 @@ class Overlay(QWidget):
         threading.Thread(target=listen, daemon=True).start()
 
     def on_position_received(self, x, y):
+        """
+        Update dot position based on normalized input coordinates.
+
+        Applies:
+            - Clamping to [0,1]
+            - Scaling to window dimensions
+            - Exponential smoothing
+            - NaN/inf guarding
+        """
         # clamp input
         x = max(0.0, min(1.0, float(x)))
         y = max(0.0, min(1.0, float(y)))
@@ -210,6 +257,15 @@ class Overlay(QWidget):
     # Paint
     # =========================
     def paintEvent(self, event):
+        """
+        Render overlay contents:
+
+            - Green border
+            - Smoothed red dot
+
+        Rendering is protected against runtime errors
+        to prevent overlay crashes.
+        """
         try:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
@@ -235,10 +291,10 @@ class Overlay(QWidget):
             # never crash overlay
             print("[OVERLAY] paintEvent ERROR:", e)
 
-    # =========================
-    # Resize-Handles Layout
-    # =========================
     def resizeEvent(self, event):
+        """
+        Update resize handle geometry after window resize.
+        """
         s = self.HANDLE_SIZE
         w, h = self.width(), self.height()
 
@@ -249,24 +305,20 @@ class Overlay(QWidget):
 
         super().resizeEvent(event)
 
-    # =========================
-    # Move Window (only if not click-through)
-    # =========================
     def mousePressEvent(self, event):
+        """Start window drag operation (if not in click-through mode)."""
         if self.click_through:
             return
         if event.button() == Qt.LeftButton:
             self.drag_offset = event.globalPos() - self.frameGeometry().topLeft()
 
     def mouseMoveEvent(self, event):
+        """Move window while dragging (if not in click-through mode)."""
         if self.click_through:
             return
         if event.buttons() == Qt.LeftButton:
             self.move(event.globalPos() - self.drag_offset)
 
-    # =========================
-    # Hotkeys
-    # =========================
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F9:
             self.save_calibration()

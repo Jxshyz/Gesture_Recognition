@@ -1,3 +1,19 @@
+"""
+Runtime module for real-time gesture inference with temporal segmentation.
+
+This module implements a full live gesture pipeline:
+
+- MediaPipe landmark extraction
+- Sliding window feature generation
+- Model inference (189-dim feature vector)
+- Time-based arming (neutral hold)
+- Segment-based gesture recording
+- Early commit via majority aggregation
+- Cooldown handling
+- Optional UI callbacks and overlays
+
+Designed for interactive real-time applications (e.g., games).
+"""
 # utils/infer_runtime.py
 from __future__ import annotations
 
@@ -16,6 +32,55 @@ from utils.model_io import load_model_and_encoder, predict_feat189, decode_label
 
 @dataclass
 class LiveConfig:
+    """
+    Configuration container for live gesture inference.
+
+    Parameters must match training setup where applicable.
+
+    Attributes:
+        window_size (int):
+            Number of frames used for sliding window classification.
+
+        neutral_label (str):
+            Label used as neutral arming gesture.
+
+        garbage_label (str):
+            Label representing invalid/noise predictions.
+
+        neutral_min_conf (float):
+            Minimum confidence required to count as neutral.
+
+        neutral_hold_s (float):
+            Time (seconds) neutral must be held before entering ARMED state.
+
+        record_min_frames (int):
+            Minimum number of frames required for fallback segment classification.
+
+        record_max_frames (int):
+            Maximum frames allowed for one recording segment.
+
+        end_hold_frames (int):
+            Number of consecutive neutral frames required to end recording.
+
+        commit_min_samples (int):
+            Minimum number of aggregated predictions for early commit.
+
+        commit_min_conf (float):
+            Minimum average confidence for early commit.
+
+        commit_frame_conf_gate (float):
+            Minimum per-frame confidence required to enter commit aggregation.
+
+        cooldown_s (float):
+            Cooldown duration (seconds) after a committed gesture.
+
+        pred_min_interval_s (float):
+            Minimum time between model predictions (rate limiting).
+
+        telemetry_interval_s (float):
+            Interval for telemetry callback updates.
+    """
+
     # Has to be exactly as in training
     window_size: int = 12
 
@@ -65,6 +130,23 @@ def _draw_phase_overlay(
     live_conf: float,
     armed_progress: float,
 ):
+    """
+    Draw a visual state overlay onto the frame.
+
+    Displays:
+        - Current FSM state
+        - Remaining time in current phase
+        - Arming progress (percentage)
+        - Live prediction (label + confidence)
+
+    Parameters:
+        frame_bgr (np.ndarray): Frame modified in place.
+        state (str): Current runtime state.
+        seconds_left (float): Remaining time in current phase.
+        live_label (str): Current predicted label.
+        live_conf (float): Current prediction confidence.
+        armed_progress (float): Arming progress in range [0,1].
+    """
     h, w = frame_bgr.shape[:2]
     color = STATE_COLORS.get(state, (200, 200, 200))
     cv2.rectangle(frame_bgr, (10, 10), (420, 140), color, -1)
@@ -116,6 +198,17 @@ def _draw_phase_overlay(
 
 
 def _extract_lm_list(results) -> Optional[List[Tuple[float, float, float]]]:
+    """
+    Extract the first detected hand's landmarks from MediaPipe results.
+
+    Parameters:
+        results: MediaPipe inference result object.
+
+    Returns:
+        Optional[List[Tuple[float, float, float]]]:
+            List of 21 (x, y, z) normalized coordinates,
+            or None if no hand is detected.
+    """
     if not results.multi_hand_landmarks:
         return None
     hand = results.multi_hand_landmarks[0]
@@ -123,7 +216,18 @@ def _extract_lm_list(results) -> Optional[List[Tuple[float, float, float]]]:
 
 
 def _resample_to_T(seq: np.ndarray, T: int) -> np.ndarray:
-    """seq: (N,63) -> (T,63)"""
+    """
+    Resample a variable-length sequence to fixed length T.
+
+    Uses linear interpolation along the temporal axis.
+
+    Parameters:
+        seq (np.ndarray): Array of shape (N, 63).
+        T (int): Target number of frames.
+
+    Returns:
+        np.ndarray: Resampled array of shape (T, 63).
+    """
     N, D = seq.shape
     if N == T:
         return seq
@@ -149,10 +253,62 @@ def run_live(
     cfg: LiveConfig = LiveConfig(),
 ):
     """
-    on_prediction: is triggered ONLY on COMMIT (real gesture for the game)
-    on_render: is called every frame (for webcam embedding)
-    on_telemetry: is called regularly (for bars + status UI)
-    signature: (state, live_label, live_conf, seconds_left, armed_progress, armed_ready)
+    Run the full real-time gesture inference loop.
+
+    Pipeline:
+        1. Capture webcam frames
+        2. Extract hand landmarks via MediaPipe
+        3. Normalize landmarks (63-dim)
+        4. Maintain sliding window (window_size frames)
+        5. Perform model inference (189-dim features)
+        6. Apply time-based FSM:
+               IDLE → ARMED → RECORDING → COOLDOWN
+        7. Trigger commit events for valid gestures
+        8. Call optional UI callbacks
+
+    State Logic:
+
+        IDLE:
+            Waits for stable neutral gesture (arming).
+
+        ARMED:
+            Neutral confirmed; waits for motion start.
+
+        RECORDING:
+            Collects frames for gesture segment.
+            Supports early commit via aggregated predictions.
+            Falls back to segment classification if needed.
+
+        COOLDOWN:
+            Short rest phase after a committed gesture.
+
+    Callbacks:
+
+        on_prediction(label, conf, frame, state, seconds_left):
+            Triggered exactly once per committed gesture.
+
+        on_render(frame, state, seconds_left):
+            Called every frame before display.
+
+        on_telemetry(state, live_label, live_conf,
+                     seconds_left, armed_progress, armed_ready):
+            Called periodically for UI updates.
+
+    Parameters:
+        camera_index (int):
+            Camera device index.
+
+        show_window (bool):
+            Whether to display the OpenCV window.
+
+        draw_phase_overlay (bool):
+            Whether to draw the state overlay.
+
+        cfg (LiveConfig):
+            Runtime configuration parameters.
+
+    Returns:
+        None
     """
     model, le = load_model_and_encoder()
 

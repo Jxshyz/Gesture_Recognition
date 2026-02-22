@@ -1,3 +1,36 @@
+"""
+Hidden Markov Model (HMM) training pipeline for gesture classification.
+
+This module:
+    1. Loads recorded gesture sequences from ./data (npz files).
+    2. Extracts sequences of shape (T, 63) per gesture.
+    3. Applies global feature scaling (StandardScaler).
+    4. Trains one GaussianHMM per gesture label.
+    5. Evaluates classification accuracy via log-likelihood comparison.
+
+Modeling approach:
+    - One-vs-all generative modeling:
+        Each gesture gets its own Gaussian HMM.
+    - Prediction:
+        The label whose HMM yields the highest log-likelihood wins.
+    - Covariance type: diagonal
+    - Sequence input: normalized 63-dim landmark vectors per frame.
+
+Expected data format (.npz):
+    Required keys:
+        - "seq12"  (preferred, shape: (12,63))
+        - or "seq" (shape: (T,63))
+        - "label"  (string)
+    Only sequences with shape (T,63) are used.
+
+Evaluation:
+    - Stratified train/test split (80/20).
+    - Per-gesture accuracy.
+    - Overall test accuracy.
+
+Typical use:
+    python hmm_gesture_training.py
+"""
 import numpy as np
 from pathlib import Path
 from collections import defaultdict, Counter
@@ -7,17 +40,19 @@ from hmmlearn import hmm
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
-# --------------------------------------------------
-# Paths
-# --------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 DATA_ROOT = BASE_DIR / "data"
 
 
-# --------------------------------------------------
-# Load sequences from .npz
-# --------------------------------------------------
 def load_npz_sequences(data_root: Path):
+    """
+    Recursively loads gesture sequences from .npz files.
+
+    Returns:
+        sequences: List[np.ndarray] with shape (T,63)
+        labels:    List[str]
+    Only valid (T,63) sequences are kept.
+    """
     sequences = []
     labels = []
 
@@ -42,10 +77,19 @@ def load_npz_sequences(data_root: Path):
     return sequences, labels
 
 
-# --------------------------------------------------
-# Train HMMs (one per gesture)
-# --------------------------------------------------
 def train_hmms(sequences, labels, n_states=5, n_iter=20):
+    """
+    Trains one GaussianHMM per gesture label.
+
+    Steps:
+        - Global StandardScaler fit across all sequences.
+        - Group sequences by label.
+        - Train HMM with given number of hidden states.
+
+    Returns:
+        models: Dict[label -> trained HMM]
+        scaler: fitted StandardScaler
+    """
     # global scaling (important!)
     scaler = StandardScaler()
     scaler.fit(np.vstack(sequences))
@@ -71,10 +115,15 @@ def train_hmms(sequences, labels, n_states=5, n_iter=20):
     return models, scaler
 
 
-# --------------------------------------------------
-# Prediction
-# --------------------------------------------------
 def predict(sequence, models, scaler):
+    """
+    Predicts gesture label for a single sequence.
+
+    Strategy:
+        - Scale sequence using fitted scaler.
+        - Compute log-likelihood for each gesture HMM.
+        - Return label with highest score.
+    """
     seq = scaler.transform(sequence)
     scores = {}
 

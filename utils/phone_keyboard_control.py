@@ -1,3 +1,19 @@
+"""
+Keyboard-to-Android controller via ADB.
+
+This module allows controlling an Android device using
+local keyboard input. It listens for arrow key and enter
+events and sends corresponding Android DPAD keycodes
+via adb.
+
+Designed for:
+
+    - Manual testing
+    - Debugging gesture pipelines
+    - Simple remote navigation control
+
+Press ESC to exit.
+"""
 # utils/phone_keyboard_control.py
 from __future__ import annotations
 
@@ -24,12 +40,40 @@ KEYCODES = {
 
 @dataclass
 class PhoneKeyConfig:
+    """
+    Configuration for keyboard-based Android control.
+
+    Attributes:
+        serial (Optional[str]):
+            Target Android device serial.
+            If None, auto-detection is attempted.
+
+        adb_path (Optional[str]):
+            Explicit path to adb executable.
+            If None, auto-detection is used.
+
+        repeat_min_interval_s (float):
+            Minimum time between repeated key events
+            to prevent rapid key spamming.
+    """
+
     serial: Optional[str] = None
     adb_path: Optional[str] = None
     repeat_min_interval_s: float = 0.05  # schützt vor Key-Spam
 
 
 def _find_adb(adb_path: Optional[str] = None) -> str:
+    """
+    Locate the adb executable.
+
+    Search order:
+        1. Explicit adb_path argument
+        2. ANDROID_SDK_ROOT / ANDROID_HOME
+        3. Fallback: assume 'adb' is available in PATH
+
+    Returns:
+        str: Path to adb executable.
+    """
     if adb_path and os.path.exists(adb_path):
         return adb_path
 
@@ -48,6 +92,16 @@ def _find_adb(adb_path: Optional[str] = None) -> str:
 
 
 def _run(cmd: List[str]) -> Tuple[int, str]:
+    """
+    Execute a subprocess command and capture output.
+
+    Parameters:
+        cmd (List[str]): Command and arguments.
+
+    Returns:
+        Tuple[int, str]:
+            (return_code, combined_stdout_stderr_output)
+    """
     p = subprocess.run(cmd, capture_output=True, text=True)
     out = (p.stdout or "") + (p.stderr or "")
     return p.returncode, out.strip()
@@ -55,8 +109,15 @@ def _run(cmd: List[str]) -> Tuple[int, str]:
 
 def _list_devices(adb: str) -> List[Tuple[str, str]]:
     """
-    returns [(serial, status), ...]
-    status is usually: device / unauthorized / offline
+    List connected Android devices via adb.
+
+    Parameters:
+        adb (str): Path to adb executable.
+
+    Returns:
+        List[Tuple[str, str]]:
+            List of (serial, status) pairs.
+            Status is typically: device, unauthorized, offline.
     """
     rc, out = _run([adb, "devices"])
     if rc != 0:

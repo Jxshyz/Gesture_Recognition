@@ -1,3 +1,15 @@
+"""
+Finite State Machine (FSM) for robust gesture command triggering.
+
+This module stabilizes noisy real-time gesture predictions by:
+
+- Requiring an explicit arm gesture (e.g., fist) before actions
+- Applying a majority vote over a sliding prediction window
+- Enforcing cooldown periods after committed commands
+
+The FSM ensures that gesture commands are deliberate,
+stable, and emitted exactly once per activation cycle.
+"""
 # utils/gesture_state_machine.py
 from __future__ import annotations
 from dataclasses import dataclass
@@ -8,10 +20,43 @@ from typing import Deque, Dict, Optional, Tuple
 
 @dataclass
 class GSMConfig:
+    """
+    Configuration parameters for the GestureStateMachine.
+
+    Attributes:
+        arm_label (str):
+            Label used to arm the system (e.g., "fist").
+
+        arm_min_conf (float):
+            Minimum confidence required to count as valid arm gesture.
+
+        arm_hold_s (float):
+            Required continuous hold time (seconds) before entering ARMED state.
+
+        action_min_conf (float):
+            Minimum confidence for action gestures to be considered.
+
+        vote_window (int):
+            Number of recent predictions used for majority voting.
+
+        vote_min_majority (int):
+            Minimum count required for a winning label inside the vote window.
+
+        armed_timeout_s (float):
+            Maximum duration (seconds) allowed in ARMED state without
+            receiving a valid action gesture.
+
+        cooldown_s (float):
+            Cooldown duration (seconds) after emitting a command.
+
+        label_to_cmd (Dict[str, str]):
+            Mapping from model output labels to command strings.
+    """
+
     # Arm gestures (e.g. fist)
     arm_label: str = "fist"
     arm_min_conf: float = 0.60
-    arm_hold_s: float = 0.30  # wie lange fist gehalten werden muss, um ARMED zu werden
+    arm_hold_s: float = 0.30  # hold fist time to get ARMED
 
     # Action gestures
     action_min_conf: float = 0.55
@@ -37,12 +82,22 @@ class GSMConfig:
 
 class GestureStateMachine:
     """
-    IDLE:
-      - ignoriert alles außer Arm-Geste (fist)
-    ARMED:
-      - wartet auf Action-Geste, stabilisiert mit Majority-Vote
-    COOLDOWN:
-      - kurze Sperre nach Command
+    Gesture-based finite state machine with arming and cooldown logic.
+
+    States:
+
+        IDLE:
+            Ignores all predictions except the configured arm gesture.
+            Requires a continuous hold to transition to ARMED.
+
+        ARMED:
+            Waits for an action gesture.
+            Applies majority voting over recent predictions.
+            Emits exactly one command upon stable detection.
+
+        COOLDOWN:
+            Temporarily blocks new gestures after a committed command.
+            Automatically returns to IDLE after cooldown expires.
     """
 
     IDLE = "IDLE"
@@ -54,6 +109,11 @@ class GestureStateMachine:
         self.reset()
 
     def reset(self) -> None:
+        """
+        Reset the FSM to its initial IDLE state.
+
+        Clears timing variables, vote buffers, and cooldown state.
+        """
         self.state = self.IDLE
         self._arm_t = 0.0
         self._last_update_t = time()
@@ -64,6 +124,41 @@ class GestureStateMachine:
     def update(
         self, label: str, conf: float, ts: Optional[float] = None
     ) -> Tuple[Optional[str], Dict]:
+        """
+        Update the FSM with a new prediction.
+
+        This method processes a single model prediction and:
+
+            - Advances state timing
+            - Handles arming logic (hold detection)
+            - Applies majority voting in ARMED state
+            - Emits a command if a stable action is detected
+            - Enforces cooldown logic
+
+        Parameters:
+            label (str):
+                Predicted gesture label from the model.
+
+            conf (float):
+                Confidence score associated with the prediction.
+
+            ts (Optional[float]):
+                Timestamp of the prediction. If None, current system time is used.
+
+        Returns:
+            Tuple[Optional[str], Dict]:
+
+                - cmd (Optional[str]):
+                    Emitted command string (e.g., "LEFT", "JUMP"),
+                    or None if no command was triggered.
+
+                - debug (Dict):
+                    Diagnostic information including:
+                        - current state
+                        - arming progress (0..1)
+                        - current label and confidence
+                        - vote buffer (if applicable)
+        """
         now = float(time() if ts is None else ts)
         dt = now - self._last_update_t
         if dt < 0:

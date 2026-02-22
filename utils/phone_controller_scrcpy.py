@@ -1,3 +1,21 @@
+"""
+Android device control via scrcpy control protocol.
+
+This module provides a high-level wrapper around:
+
+- adbutils (device access)
+- scrcpy (video + control socket)
+
+It enables:
+
+- Touch events (DOWN / MOVE / UP)
+- Smooth swipes
+- Tap gestures
+- Key events
+- Display size and rotation polling
+
+Designed for gesture-driven remote phone control.
+"""
 # utils/phone_controller_scrcpy.py
 from __future__ import annotations
 
@@ -13,6 +31,36 @@ from scrcpy import const
 
 @dataclass
 class ScrcpyDeviceConfig:
+    """
+    Configuration for connecting to an Android device via scrcpy.
+
+    Attributes:
+        serial (Optional[str]):
+            Specific device serial to connect to.
+            If None, the first available device is used.
+
+        max_width (int):
+            Maximum video width for scrcpy stream (0 = default).
+
+        bitrate (int):
+            Video bitrate for scrcpy.
+
+        max_fps (int):
+            Maximum frames per second (0 = default).
+
+        flip (bool):
+            Whether to horizontally flip the video stream.
+
+        block_frame (bool):
+            Whether frame processing should block.
+
+        stay_awake (bool):
+            Keep device screen awake while connected.
+
+        lock_screen_orientation (int):
+            Screen orientation lock (-1 = no lock).
+    """
+
     serial: Optional[str] = None
     # Video is not strictly necessary, but Start must be running for Control to function reliably
     max_width: int = 0
@@ -26,10 +74,17 @@ class ScrcpyDeviceConfig:
 
 class AndroidDeviceScrcpy:
     """
-    Android Device Controller über scrcpy control protocol:
-    - echte Touch DOWN/MOVE/UP -> kohärentes Drag&Drop
-    - keycode events
-    - screen size & rotation polling (für Hoch-/Querformat)
+    High-level Android device controller using scrcpy.
+
+    Features:
+        - True touch events (DOWN / MOVE / UP)
+        - Smooth swipe gestures
+        - Tap helper
+        - Key event injection
+        - Screen size and rotation detection
+        - Orientation-aware coordinate handling
+
+    Intended for real-time gesture → phone control pipelines.
     """
 
     def __init__(self, device: adbutils.AdbDevice, client: scrcpy.Client):
@@ -49,6 +104,26 @@ class AndroidDeviceScrcpy:
     # ----------------------------
     @classmethod
     def connect(cls, cfg: ScrcpyDeviceConfig) -> "AndroidDeviceScrcpy":
+        """
+        Connect to an Android device and start a scrcpy client.
+
+        Device selection logic:
+            - If serial is provided, use it.
+            - Otherwise select the first available device.
+            - Prefer physical devices over emulators.
+
+        Starts scrcpy in a background thread so the caller
+        can continue running its own loop.
+
+        Parameters:
+            cfg (ScrcpyDeviceConfig): Connection configuration.
+
+        Returns:
+            AndroidDeviceScrcpy: Initialized controller instance.
+
+        Raises:
+            RuntimeError: If no device is found.
+        """
         # choose device
         if cfg.serial:
             dev = adbutils.adb.device(cfg.serial)
@@ -95,13 +170,26 @@ class AndroidDeviceScrcpy:
         except Exception:
             pass
 
-    # ----------------------------
-    # Display info (size/orientation)
-    # ----------------------------
     def _shell(self, cmd: str) -> str:
         return self._device.shell(cmd)
 
     def refresh_display_info(self, force: bool = False, min_interval_s: float = 0.75):
+        """
+        Refresh screen resolution and orientation.
+
+        Uses:
+            - 'wm size' to obtain physical resolution
+            - 'dumpsys input' to obtain surface rotation
+
+        Automatically swaps width/height for landscape rotations.
+
+        Parameters:
+            force (bool):
+                If True, refresh immediately.
+
+            min_interval_s (float):
+                Minimum time between refresh calls (throttling).
+        """
         now = time.time()
         if not force and (now - self._last_refresh_t) < min_interval_s:
             return
@@ -139,9 +227,18 @@ class AndroidDeviceScrcpy:
     # ----------------------------
     @property
     def control(self):
+        """
+        Access the underlying scrcpy control interface.
+        """
         return self._client.control
 
     def keyevent(self, keycode: int):
+        """
+        Send a key event to the device.
+
+        Parameters:
+            keycode (int): Android keycode constant.
+        """
         # scrcpy control keycode supports DOWN/UP; using DOWN is usually enough
         self.control.keycode(keycode, action=const.ACTION_DOWN)
 
@@ -157,6 +254,15 @@ class AndroidDeviceScrcpy:
     def swipe(
         self, x1: int, y1: int, x2: int, y2: int, step: int = 12, delay: float = 0.003
     ):
+        """
+        Perform a smooth swipe gesture.
+
+        Parameters:
+            x1, y1 (int): Start coordinates.
+            x2, y2 (int): End coordinates.
+            step (int): Step length for movement interpolation.
+            delay (float): Delay between steps (seconds).
+        """
         # stepwise swipe (smoother than adb input)
         self.control.swipe(
             int(x1),
@@ -168,6 +274,14 @@ class AndroidDeviceScrcpy:
         )
 
     def tap(self, x: int, y: int, touch_id: int = 1, hold_s: float = 0.03):
+        """
+        Perform a tap gesture at (x, y).
+
+        Parameters:
+            x, y (int): Coordinates.
+            touch_id (int): Touch identifier.
+            hold_s (float): Hold duration before release.
+        """
         self.touch_down(x, y, touch_id=touch_id)
         time.sleep(max(0.0, hold_s))
         self.touch_up(x, y, touch_id=touch_id)

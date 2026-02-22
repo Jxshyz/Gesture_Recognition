@@ -1,3 +1,38 @@
+"""
+Training pipeline for the gesture classification model.
+
+This module:
+    1. Loads recorded gesture sequences from ./data (npy / npz).
+    2. Filters labels via ALLOWED_LABELS / EXCLUDE_LABELS.
+    3. Converts variable-length sequences into fixed-size windows.
+    4. Extracts 189-dimensional features per window.
+    5. Trains a GradientBoostingClassifier.
+    6. Saves:
+        - ./models/gesture_model.joblib
+        - ./models/label_encoder.joblib
+
+Data expectations:
+    - Sequences stored as:
+        (T,63)  flattened normalized landmarks
+        (T,21,3) raw landmark format
+        (63,)    single-frame fallback
+    - Folder structure typically:
+        ./data/recordings/<user>/<hand>/<gesture>/*.npz
+
+Feature pipeline:
+    window (T=12,63)
+        -> window_features()
+        -> 189-dim vector:
+            [mean(63), std(63), delta(63)]
+
+Model:
+    - sklearn GradientBoostingClassifier
+    - Incremental warm_start training for tqdm progress display
+    - N_ESTIMATORS controls training duration/complexity
+
+Intended usage:
+    Run train_and_save() after collecting new recordings.
+"""
 # utils/train_gesture_model.py
 from __future__ import annotations
 
@@ -197,6 +232,10 @@ def _fit_gb_with_tqdm(
 
 
 def train_and_save():
+    """
+    Executes full training pipeline and stores model + label encoder.
+    Aborts safely if no valid samples are found.
+    """
     print("[INFO] Lade Sequenzen...")
     seqs, labels = load_sequences()
     print(f"[INFO] Geladen: {len(seqs)} Sequenzen")

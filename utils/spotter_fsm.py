@@ -1,3 +1,45 @@
+"""
+Online gesture segmentation using a motion-based finite state machine (FSM).
+
+This module detects gesture segments in a continuous stream of
+MediaPipe hand landmarks without using a trained classifier.
+
+Core idea:
+    - Compute frame-to-frame motion magnitude in normalized landmark space.
+    - Smooth motion using an exponential moving average (EMA).
+    - Use hysteresis thresholds (motion_on / motion_off) to detect:
+        rest  -> gesture start  -> gesture end.
+
+States:
+    IDLE:
+        Wait for stable low-motion (rest pose).
+
+    ARMED:
+        System is ready; waits for motion above threshold.
+
+    RECORDING:
+        Collects normalized landmark frames as long as motion persists.
+        Ends when:
+            - motion falls below threshold for end_frames, or
+            - max_gesture_frames is reached.
+
+    COOLDOWN:
+        Blocks new gestures for a fixed number of frames.
+
+Output:
+    update() returns:
+        (segment_or_None, state, motion_ema)
+
+    segment:
+        np.ndarray of shape (T, 63)
+        Only returned if:
+            min_gesture_frames <= T <= max_gesture_frames
+
+Use case:
+    - Real-time gesture spotting before classification
+    - Automatic segmentation of training data
+    - Lightweight online preprocessing without neural models
+"""
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
@@ -28,6 +70,10 @@ def normalize_landmarks(lm_xyz: np.ndarray) -> np.ndarray:
 
 
 class GestureSpotterFSM:
+    """
+    Motion-based online gesture segmenter with hysteresis and cooldown.
+    """
+
     IDLE, ARMED, RECORDING, COOLDOWN = "IDLE", "ARMED", "RECORDING", "COOLDOWN"
 
     def __init__(self, cfg: SpotterConfig = SpotterConfig()):

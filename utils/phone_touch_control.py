@@ -1,3 +1,21 @@
+"""
+Keyboard-driven touch control for Android devices via ADB.
+
+This module allows sending swipe and tap gestures to an Android
+device using local keyboard input.
+
+Features:
+
+    - Arrow keys → directional swipe gestures
+    - Enter      → tap (e.g., rotate / select)
+    - WASD       → live adjustment of swipe anchor position
+    - T          → instant tap test
+    - Esc        → exit
+
+Swipes and taps are dynamically calculated from the
+current device screen resolution.
+Designed for rapid manual testing and calibration.
+"""
 # utils/phone_touch_control.py
 from __future__ import annotations
 
@@ -14,6 +32,37 @@ from pynput import keyboard
 
 @dataclass
 class TouchConfig:
+    """
+    Configuration for keyboard-based touch control.
+
+    Attributes:
+        serial (Optional[str]):
+            Target Android device serial.
+            If None, auto-detection is used.
+
+        adb_path (Optional[str]):
+            Explicit path to adb executable.
+
+        repeat_min_interval_s (float):
+            Minimum interval between repeated inputs
+            to prevent event spamming.
+
+        anchor_x_ratio / anchor_y_ratio (float):
+            Initial swipe anchor position (relative screen coordinates 0..1).
+
+        swipe_dx_ratio / swipe_dy_ratio (float):
+            Relative swipe distance (horizontal / vertical).
+
+        swipe_duration_ms (int):
+            Swipe duration in milliseconds.
+
+        tap_x_ratio / tap_y_ratio (float):
+            Relative tap position.
+
+        nudge_px (int):
+            Pixel offset applied when adjusting anchor via WASD.
+    """
+
     serial: Optional[str] = None
     adb_path: Optional[str] = None
 
@@ -38,6 +87,17 @@ class TouchConfig:
 
 
 def _find_adb(adb_path: Optional[str] = None) -> str:
+    """
+    Locate the adb executable.
+
+    Search order:
+        1. Explicit adb_path argument
+        2. ANDROID_SDK_ROOT / ANDROID_HOME
+        3. Fallback: assume 'adb' in PATH
+
+    Returns:
+        str: Path to adb executable.
+    """
     if adb_path and os.path.exists(adb_path):
         return adb_path
 
@@ -54,12 +114,33 @@ def _find_adb(adb_path: Optional[str] = None) -> str:
 
 
 def _run(cmd: List[str]) -> Tuple[int, str]:
+    """
+    Execute a subprocess command and capture output.
+
+    Parameters:
+        cmd (List[str]): Command and arguments.
+
+    Returns:
+        Tuple[int, str]:
+            (return_code, combined_stdout_stderr)
+    """
     p = subprocess.run(cmd, capture_output=True, text=True)
     out = (p.stdout or "") + (p.stderr or "")
     return p.returncode, out.strip()
 
 
 def _list_devices(adb: str) -> List[Tuple[str, str]]:
+    """
+    Retrieve connected Android devices via adb.
+
+    Parameters:
+        adb (str): Path to adb executable.
+
+    Returns:
+        List[Tuple[str, str]]:
+            List of (serial, status) pairs.
+            Status typically: device, unauthorized, offline.
+    """
     rc, out = _run([adb, "devices"])
     if rc != 0:
         raise RuntimeError(f"adb devices failed:\n{out}")
@@ -74,6 +155,16 @@ def _list_devices(adb: str) -> List[Tuple[str, str]]:
 
 
 def _pick_default_serial(devs: List[Tuple[str, str]]) -> Optional[str]:
+    """
+    Select a default Android device serial.
+
+    Preference order:
+        1. Physical device with status 'device'
+        2. Any device with status 'device'
+
+    Returns:
+        Optional[str]: Selected serial or None.
+    """
     real = [s for s, st in devs if st == "device" and not s.startswith("emulator-")]
     if real:
         return real[0]
@@ -84,6 +175,22 @@ def _pick_default_serial(devs: List[Tuple[str, str]]) -> Optional[str]:
 
 
 def _get_screen_size(adb: str, serial: str) -> Tuple[int, int]:
+    """
+    Query the physical screen resolution of the device.
+
+    Uses:
+        adb shell wm size
+
+    Parameters:
+        adb (str): Path to adb executable.
+        serial (str): Device serial.
+
+    Returns:
+        Tuple[int, int]: (width, height) in pixels.
+
+    Raises:
+        RuntimeError: If screen size cannot be parsed.
+    """
     # Expect something like:
     # Physical size: 1080x2400
     rc, out = _run([adb, "-s", serial, "shell", "wm", "size"])
@@ -103,6 +210,9 @@ def _get_screen_size(adb: str, serial: str) -> Tuple[int, int]:
 
 
 def adb_tap(adb: str, serial: str, x: int, y: int) -> None:
+    """
+    Send a tap gesture via adb at screen coordinates (x, y).
+    """
     subprocess.run(
         [adb, "-s", serial, "shell", "input", "tap", str(x), str(y)],
         stdout=subprocess.DEVNULL,
@@ -113,6 +223,14 @@ def adb_tap(adb: str, serial: str, x: int, y: int) -> None:
 def adb_swipe(
     adb: str, serial: str, x1: int, y1: int, x2: int, y2: int, duration_ms: int
 ) -> None:
+    """
+    Send a swipe gesture via adb.
+
+    Parameters:
+        x1, y1 (int): Start coordinates.
+        x2, y2 (int): End coordinates.
+        duration_ms (int): Swipe duration in milliseconds.
+    """
     subprocess.run(
         [
             adb,
@@ -133,6 +251,37 @@ def adb_swipe(
 
 
 def run_phone_touch_control(cfg: TouchConfig = TouchConfig()) -> None:
+    """
+    Run interactive keyboard-based touch control for Android.
+
+    Workflow:
+
+        1. Locate adb executable
+        2. Detect connected devices
+        3. Select appropriate device
+        4. Query screen resolution
+        5. Compute anchor and swipe distances
+        6. Listen for keyboard input
+        7. Send swipe or tap gestures via adb
+
+    Key Mapping:
+
+        Arrow keys → directional swipe
+        Enter      → tap
+        WASD       → adjust swipe anchor position
+        T          → immediate tap test
+        Esc        → exit
+
+    All swipe distances and anchor positions are computed
+    relative to screen size to remain resolution-independent.
+
+    Parameters:
+        cfg (TouchConfig):
+            Runtime configuration.
+
+    Returns:
+        None
+    """
     adb = _find_adb(cfg.adb_path)
 
     serial = cfg.serial or os.environ.get("ANDROID_SERIAL")
